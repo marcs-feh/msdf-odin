@@ -156,7 +156,6 @@ static void msdf_v2Sub(msdf_Vec2 r, msdf_Vec2 const a, msdf_Vec2 const b)
         r[i] = a[i] - b[i];
 }
 
-// -------------------------------------- PORTED ^^^ -------------------------------
 
 int msdf_solveQuadratic(double x[2], double a, double b, double c)
 {
@@ -190,6 +189,7 @@ int msdf_solveQuadratic(double x[2], double a, double b, double c)
         return 0;
     }
 }
+
 
 int msdf_solveCubicNormed(double *x, double a, double b, double c)
 {
@@ -238,36 +238,34 @@ int msdf_solveCubic(double x[3], double a, double b, double c, double d)
     return msdf_solveCubicNormed(x, b / a, c / a, d / a);
 }
 
+
 void msdf_getOrtho(msdf_Vec2 r, msdf_Vec2 const v, int polarity, int allow_zero)
 {
     double len = msdf_v2Leng(v);
 
-    if (len == 0)
-    {
-        if (polarity)
-        {
+    if (len == 0) {
+        if (polarity) {
             r[0] = 0;
             r[1] = !allow_zero;
         }
-        else
-        {
+        else {
             r[0] = 0;
             r[1] = -!allow_zero;
         }
         return;
     }
 
-    if (polarity)
-    {
+    if (polarity) {
         r[0] = -v[1] / len;
         r[1] = v[0] / len;
     }
-    else
-    {
+    else {
         r[0] = v[1] / len;
         r[1] = -v[0] / len;
     }
 }
+
+// -------------------------------------- PORTED ^^^ -------------------------------
 
 int msdf_pixelClash(const msdf_Vec3 a, const msdf_Vec3 b, double threshold)
 {
