@@ -28,9 +28,9 @@ gen_glyph :: proc(font: ^Font_Info, glyph_index: i32, border_width: i32, scale: 
 	unimplemented()
 }
 
-Vec2 :: [2]f32
+Vec2 :: [2]f64
 
-Vec3 :: [3]f32
+Vec3 :: [3]f64
 
 // #define msdf_pixelAt(x, y, w, arr)
 // 	((msdf_Vec3){arr[(3 * (((y)*w) + x))], arr[(3 * (((y)*w) + x)) + 1], arr[(3 * (((y)*w) + x)) + 2]})
@@ -110,17 +110,20 @@ solve_quadratic :: proc(a, b, c: f64) -> (roots: [2]f64, count: int) {
 }
 
 solve_cubic_normalized :: proc(a, b, c: f64) -> (roots: [3]f64, count: int){
+	a := a
+	a /= 3.0
+
 	a2 := a * a
 	q  := (a2 - 3 * b) / 9
 	r  := (a * (2 * a2 - 9 * b) + 27 * c) / 54
 	r2 := r * r
 	q3 := q * q * q
 
+
 	if r2 < q3 {
 		t := r / math.sqrt(q3)
 		t = clamp(-1, t, 1)
 		t = math.acos(t)
-		a := a / 3
 		q = -2 * math.sqrt(q)
 		roots[0] = q * math.cos(t / 3) - a
 		roots[1] = q * math.cos((t + 2 * math.PI) / 3) - a
@@ -133,7 +136,6 @@ solve_cubic_normalized :: proc(a, b, c: f64) -> (roots: [3]f64, count: int){
 			A = -A
 		}
 		B := (A == 0) ? 0.0 : q / A
-		a := a / 3
 		roots[0] = (A + B) - a;
 		roots[1] = -0.5 * (A + B) - a
 		roots[2] = 0.5 * math.sqrt(f64(3)) * (A - B)
@@ -184,5 +186,60 @@ get_ortho :: proc(v: Vec2, polarity: bool, allow_zero: bool) -> (r: Vec2) {
 	return
 }
 
+pixel_clash :: proc(a, b: Vec3, threshold: f64) -> bool {
+	unimplemented("Pixel Clash")
+}
+
+
+linear_direction :: proc(e: Edge_Segment, param: f64) -> (r: Vec2){
+	r[0] = e.p[1][0] - e.p[0][0]
+	r[1] = e.p[1][1] - e.p[0][1]
+	return
+}
+
+quadratic_direction :: proc(e: Edge_Segment, param: f64) -> (r: Vec2){
+	a := e.p[1] - e.p[0]
+	b := e.p[2] - e.p[1]
+	return lin.mix(a, b, Vec2(param))
+}
+
+cubic_direction :: proc(e: Edge_Segment, param: f64) -> (r: Vec2){
+	a := e.p[1] - e.p[0]
+	b := e.p[2] - e.p[1]
+	c := lin.mix(a, b, Vec2(param))
+
+	a = e.p[3] - e.p[2]
+	d := lin.mix(b, a, param)
+	t := lin.mix(c, d, param)
+
+	if t[0] == 0 && t[1] == 0 {
+		if param == 0 {
+			r[0] = e.p[2][0] - e.p[0][0]
+			r[1] = e.p[2][1] - e.p[0][1]
+			return
+		}
+		if param == 1 {
+			r[0] = e.p[3][0] - e.p[1][0]
+			r[1] = e.p[3][1] - e.p[1][1]
+			return
+		}
+	}
+
+	r[0] = t[0]
+	r[1] = t[1]
+	return
+}
+
+direction :: proc(e: Edge_Segment, param: f64) -> (r: Vec2){
+	#partial switch e.type {
+	case .VLine:
+		return linear_direction(e, param)
+	case .VCurve:
+		return quadratic_direction(e, param)
+	case .VCubic:
+		return cubic_direction(e, param)
+	}
+	unreachable()
+}
 
 

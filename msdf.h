@@ -265,8 +265,8 @@ void msdf_getOrtho(msdf_Vec2 r, msdf_Vec2 const v, int polarity, int allow_zero)
     }
 }
 
-// -------------------------------------- PORTED ^^^ -------------------------------
 
+// TODO: Port this
 int msdf_pixelClash(const msdf_Vec3 a, const msdf_Vec3 b, double threshold)
 {
     int aIn = (a[0] > .5f) + (a[1] > .5f) + (a[2] > .5f) >= 2;
@@ -378,6 +378,8 @@ void msdf_direction(msdf_Vec2 r, msdf_EdgeSegment *e, double param)
     }
     }
 }
+
+// -------------------------------------- PORTED ^^^ -------------------------------
 
 void msdf_linearPoint(msdf_Vec2 r, msdf_EdgeSegment *e, double param)
 {
