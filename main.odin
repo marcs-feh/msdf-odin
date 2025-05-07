@@ -1,4 +1,8 @@
 package msdf
 
-main :: proc(){}
+import "core:fmt"
+import stbtt "vendor:stb/truetype"
+
+main :: proc(){
+}
 

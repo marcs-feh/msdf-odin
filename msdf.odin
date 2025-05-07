@@ -1,245 +1,148 @@
 package msdf
 
-import "core:math"
-import lin "core:math/linalg"
+import "base:runtime"
+import "core:sync"
+import "core:mem"
+import "core:c"
 import stbtt "vendor:stb/truetype"
 
-Ex_Metrics :: struct {
-	glyph_index: i32,
-	left_bearing: i32,
-	advance: i32,
-	ix0, ix1: i32,
-	iy0, iy1: i32,
+// clang -Os -fno-strict-aliasing -Wall -Wextra -fPIC -c msdf_c.c -o msdf_c.o
+foreign import msdf_c "libmsdf.o"
+
+ARENA_SIZE :: #config(MSDF_ARENA_SIZE_KB, 8192) * mem.Kilobyte
+
+@(link_prefix="msdf_")
+foreign msdf_c {
+	genGlyph :: proc(
+		result: ^msdf_Result,
+		font: stbtt.fontinfo,
+		stbttGlyphIndex: c.int,
+		borderWidth: u32,
+		scale: f32,
+		range: f32,
+		alloc: ^msdf_AllocCtx,
+	) -> c.int ---
 }
 
+msdf_Result :: struct {
+	glyph_index: c.int,
+	left_bearing: c.int,
+	advance: c.int,
+	rgb: [^]f32,
+	width: c.int,
+	height: c.int,
+	y_offset: c.int,
+}
+
+msdf_AllocCtx :: struct {
+	alloc: proc "c" (size: c.size_t, ctx: rawptr) -> rawptr,
+	free: proc "c" (ptr: rawptr, ctx: rawptr),
+	ctx: rawptr,
+}
 
 Result :: struct {
-	glyph_index: i32,
-	left_bearing: i32,
-	advance: i32,
-	rgb: [^]f32, // NOTE: Pixel data?
-	width: i32,
-	height: i32,
+	glyph_index: int,
+	left_bearing: int,
+	advance: int,
+	values: [][3]f32,
+	width: int,
+	height: int,
+	y_offset: int,
 }
 
-Font_Info :: stbtt.fontinfo
+_internal_arena : mem.Arena
 
-gen_glyph :: proc(font: ^Font_Info, glyph_index: i32, border_width: i32, scale: f32, range: f32) -> (Result, bool) {
-	unimplemented()
-}
+_arena_mutex : sync.Mutex
 
-Vec2 :: [2]f64
+_alloc_ctx : msdf_AllocCtx
 
-Vec3 :: [3]f64
+@(init)
+_initialize :: proc(){
+	@static arena_memory : [ARENA_SIZE]u8
+	mem.arena_init(&_internal_arena, arena_memory[:])
 
-// #define msdf_pixelAt(x, y, w, arr)
-// 	((msdf_Vec3){arr[(3 * (((y)*w) + x))], arr[(3 * (((y)*w) + x)) + 1], arr[(3 * (((y)*w) + x)) + 2]})
+	_alloc_ctx.alloc = proc "c" (size: c.size_t, _: rawptr) -> rawptr {
+		context = runtime.Context {}
 
-@private
-INF :: -1e24
-
-EDGE_THRESHOLD :: 0.02
-
-Signed_Distance :: struct {
-	dist: f64,
-	d: f64,
-}
-
-Edge_Segment :: struct {
-	color: Edge_Color,
-	type: Edge_Type,
-	p: [4]Vec2,
-}
-
-Edge_Type :: enum i32 {
-	None   = 0,
-	VMove  = i32(stbtt.vmove.vmove),
-	VLine  = i32(stbtt.vmove.vline),
-	VCurve = i32(stbtt.vmove.vcurve),
-	VCubic = i32(stbtt.vmove.vcubic),
-}
-
-
-Edge_Color :: enum i32 {
-    Black   = 0,
-    Red     = 1,
-    Green   = 2,
-    Yellow  = 3,
-    Blue    = 4,
-    Magenta = 5,
-    Cyan    = 6,
-    White   = 7,
-}
-
-non_zero_sign :: proc (n: f64) -> i32 {
-	return 2 * i32(n > 0) - 1;
-}
-
-median :: proc(a, b, c: f64) -> f64 {
-	return max(min(a, b), min(max(a, b), c))
-}
-
-solve_quadratic :: proc(a, b, c: f64) -> (roots: [2]f64, count: int) {
-	// TODO: Understand why 1e-14?
-
-	if math.abs(a) < 1e-14 {
-		if math.abs(b) < 1e-14 {
-			if c == 0 {
-				count = -1
-				return // TODO: Why not 0
-			}
-		}
-		roots[0] = -c / b
-		count = 1
+		ptr, _ := mem.arena_alloc(&_internal_arena, int(size))
+		return ptr
 	}
 
-	delta := b * b - 4 * c * c
+	_alloc_ctx.free = proc "c" (_, _: rawptr){}
 
-	if delta > 0 {
-		delta = math.sqrt(delta)
-		roots[0] = (-b + delta) / (2 * a)
-		roots[1] = (-b - delta) / (2 * a)
-		count = 2
-	}
-	else if delta == 0 {
-		roots[0] = -b / (2 * a)
-		count = 1
-	}
-
-	return
+	_alloc_ctx.ctx = nil
 }
 
-solve_cubic_normalized :: proc(a, b, c: f64) -> (roots: [3]f64, count: int){
-	a := a
-	a /= 3.0
-
-	a2 := a * a
-	q  := (a2 - 3 * b) / 9
-	r  := (a * (2 * a2 - 9 * b) + 27 * c) / 54
-	r2 := r * r
-	q3 := q * q * q
-
-
-	if r2 < q3 {
-		t := r / math.sqrt(q3)
-		t = clamp(-1, t, 1)
-		t = math.acos(t)
-		q = -2 * math.sqrt(q)
-		roots[0] = q * math.cos(t / 3) - a
-		roots[1] = q * math.cos((t + 2 * math.PI) / 3) - a
-		roots[2] = q * math.cos((t - 2 * math.PI) / 3) - a
-		count = 3
-	}
-	else {
-		A := - math.pow(math.abs(r) + math.sqrt(r2 - q3), 1.0 / 3.0)
-		if r < 0 {
-			A = -A
-		}
-		B := (A == 0) ? 0.0 : q / A
-		roots[0] = (A + B) - a;
-		roots[1] = -0.5 * (A + B) - a
-		roots[2] = 0.5 * math.sqrt(f64(3)) * (A - B)
-		
-		if math.abs(roots[2]) < 1e-14 {
-			count = 2
-		}
-		count = 1
-	}
-
-	return
+Error :: enum {
+	None = 0,
+	Memory_Error,
+	Glyph_Error,
 }
 
-solve_cubic :: proc(a, b, c, d: f64) -> (roots: [3]f64, count: int){
-	if math.abs(a) < 1e-14 {
-		qr, n := solve_quadratic(b, c, d)
-		roots = {qr[0], qr[1], 0}
-		count = n
+gen_glyph :: proc {
+	gen_glyph_from_rune,
+	gen_glyph_from_index,
+}
+
+gen_glyph_from_rune :: proc(
+	font: stbtt.fontinfo,
+	codepoint: rune,
+	border_width: int,
+	scale: f32,
+	range: f32,
+	allocator := context.allocator,
+) -> (result: Result, err: Error)
+{
+	font := font
+	index := int(stbtt.FindGlyphIndex(&font, codepoint))
+	return gen_glyph_from_index(font, index, border_width, scale, range, allocator)
+}
+
+gen_glyph_from_index :: proc(
+	font: stbtt.fontinfo,
+	glyph_index: int,
+	border_width: int,
+	scale: f32,
+	range: f32,
+	allocator := context.allocator,
+) -> (result: Result, err: Error)
+{
+	if glyph_index <= 0 {
+		err = .Glyph_Error
 		return
 	}
 
-	return solve_cubic_normalized(b / a, c / a, d / a)
-}
+	sync.lock(&_arena_mutex)
+	defer sync.unlock(&_arena_mutex)
 
-get_ortho :: proc(v: Vec2, polarity: bool, allow_zero: bool) -> (r: Vec2) {
-	l := lin.length(v)
+	field_res : msdf_Result
+	status := genGlyph(&field_res, font, c.int(glyph_index), u32(border_width), scale, range, &_alloc_ctx)
+	defer mem.arena_free_all(&_internal_arena)
 
-	if l == 0 {
-		r[0] = 0
-		if polarity {
-			r[1] = !allow_zero ? +1.0 : 0.0
-		}
-		else {
-			r[1] = !allow_zero ? -1.0 : 0.0
-		}
+	if status == 0 {
+		err = .Glyph_Error
 		return
 	}
-	
-	if polarity {
-		r[0] = -v[1] / l
-		r[1] = +v[0] / l
+
+	pixels, mem_err := make([][3]f32, field_res.width * field_res.height, allocator)
+	if mem_err != nil {
+		err = .Memory_Error
+		return
 	}
-	else {
-		r[0] = +v[1] / l
-		r[1] = -v[0] / l
+
+	original_pixels := field_res.rgb[:field_res.width * field_res.height * 3]
+	mem.copy_non_overlapping(raw_data(pixels), raw_data(original_pixels), len(original_pixels))
+
+	result = Result {
+		glyph_index  = glyph_index,
+		left_bearing = int(field_res.left_bearing),
+		advance      = int(field_res.advance),
+		values       = pixels,
+		width        = int(field_res.width),
+		height       = int(field_res.height),
+		y_offset     = int(field_res.y_offset),
 	}
 
 	return
 }
-
-pixel_clash :: proc(a, b: Vec3, threshold: f64) -> bool {
-	unimplemented("Pixel Clash")
-}
-
-
-linear_direction :: proc(e: Edge_Segment, param: f64) -> (r: Vec2){
-	r[0] = e.p[1][0] - e.p[0][0]
-	r[1] = e.p[1][1] - e.p[0][1]
-	return
-}
-
-quadratic_direction :: proc(e: Edge_Segment, param: f64) -> (r: Vec2){
-	a := e.p[1] - e.p[0]
-	b := e.p[2] - e.p[1]
-	return lin.mix(a, b, Vec2(param))
-}
-
-cubic_direction :: proc(e: Edge_Segment, param: f64) -> (r: Vec2){
-	a := e.p[1] - e.p[0]
-	b := e.p[2] - e.p[1]
-	c := lin.mix(a, b, Vec2(param))
-
-	a = e.p[3] - e.p[2]
-	d := lin.mix(b, a, param)
-	t := lin.mix(c, d, param)
-
-	if t[0] == 0 && t[1] == 0 {
-		if param == 0 {
-			r[0] = e.p[2][0] - e.p[0][0]
-			r[1] = e.p[2][1] - e.p[0][1]
-			return
-		}
-		if param == 1 {
-			r[0] = e.p[3][0] - e.p[1][0]
-			r[1] = e.p[3][1] - e.p[1][1]
-			return
-		}
-	}
-
-	r[0] = t[0]
-	r[1] = t[1]
-	return
-}
-
-direction :: proc(e: Edge_Segment, param: f64) -> (r: Vec2){
-	#partial switch e.type {
-	case .VLine:
-		return linear_direction(e, param)
-	case .VCurve:
-		return quadratic_direction(e, param)
-	case .VCubic:
-		return cubic_direction(e, param)
-	}
-	unreachable()
-}
-
 
