@@ -1,5 +1,4 @@
 msdf-odin
-*.c
 *.o
 *.exe
 *.cpp

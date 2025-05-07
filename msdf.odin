@@ -2,6 +2,7 @@ package msdf
 
 import "base:runtime"
 import "core:sync"
+import "core:slice"
 import "core:mem"
 import "core:c"
 import stbtt "vendor:stb/truetype"
@@ -15,7 +16,7 @@ ARENA_SIZE :: #config(MSDF_ARENA_SIZE_KB, 8192) * mem.Kilobyte
 foreign msdf_c {
 	genGlyph :: proc(
 		result: ^msdf_Result,
-		font: stbtt.fontinfo,
+		font: ^stbtt.fontinfo,
 		stbttGlyphIndex: c.int,
 		borderWidth: u32,
 		scale: f32,
@@ -44,16 +45,19 @@ Result :: struct {
 	glyph_index: int,
 	left_bearing: int,
 	advance: int,
-	values: [][3]f32,
+	values: [][3]f32 `fmt:"p"`,
 	width: int,
 	height: int,
 	y_offset: int,
 }
 
+@(require)
 _internal_arena : mem.Arena
 
+@(require)
 _arena_mutex : sync.Mutex
 
+@(require)
 _alloc_ctx : msdf_AllocCtx
 
 @(init)
@@ -85,7 +89,7 @@ gen_glyph :: proc {
 }
 
 gen_glyph_from_rune :: proc(
-	font: stbtt.fontinfo,
+	font: ^stbtt.fontinfo,
 	codepoint: rune,
 	border_width: int,
 	scale: f32,
@@ -93,13 +97,13 @@ gen_glyph_from_rune :: proc(
 	allocator := context.allocator,
 ) -> (result: Result, err: Error)
 {
-	font := font
-	index := int(stbtt.FindGlyphIndex(&font, codepoint))
+	index := int(stbtt.FindGlyphIndex(font, codepoint))
 	return gen_glyph_from_index(font, index, border_width, scale, range, allocator)
 }
 
+import "core:fmt"
 gen_glyph_from_index :: proc(
-	font: stbtt.fontinfo,
+	font: ^stbtt.fontinfo,
 	glyph_index: int,
 	border_width: int,
 	scale: f32,
@@ -107,6 +111,7 @@ gen_glyph_from_index :: proc(
 	allocator := context.allocator,
 ) -> (result: Result, err: Error)
 {
+
 	if glyph_index <= 0 {
 		err = .Glyph_Error
 		return
@@ -116,6 +121,7 @@ gen_glyph_from_index :: proc(
 	defer sync.unlock(&_arena_mutex)
 
 	field_res : msdf_Result
+	defer fmt.println("Peak:", _internal_arena.peak_used)
 	status := genGlyph(&field_res, font, c.int(glyph_index), u32(border_width), scale, range, &_alloc_ctx)
 	defer mem.arena_free_all(&_internal_arena)
 
@@ -131,7 +137,7 @@ gen_glyph_from_index :: proc(
 	}
 
 	original_pixels := field_res.rgb[:field_res.width * field_res.height * 3]
-	mem.copy_non_overlapping(raw_data(pixels), raw_data(original_pixels), len(original_pixels))
+	mem.copy_non_overlapping(raw_data(pixels), raw_data(original_pixels), slice.size(original_pixels))
 
 	result = Result {
 		glyph_index  = glyph_index,
