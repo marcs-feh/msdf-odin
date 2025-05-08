@@ -43,13 +43,22 @@ main :: proc(){
 
 	begin := time.now()
 	chars := load_ascii(&font, 256)
+	defer {
+		for ch, field in chars {
+			delete(field.values)
+		}
+		delete(chars)
+	}
 	fmt.println("Elapsed:", time.since(begin))
 
 	result, _ := gen_glyph_from_rune(&font, 'g', 2, scale, 1.0)
+	defer delete(result.values)
 	fmt.println(result)
 
 	sb : strings.Builder
 	strings.builder_init_len_cap(&sb, 0, 256 + result.width * result.height * 3)
+	defer strings.builder_destroy(&sb)
+
 	fmt.sbprintf(&sb, "P5\n%d\n%d\n255\n", result.width, result.height);
 
 

@@ -18,7 +18,7 @@ foreign msdf_c {
 		result: ^msdf_Result,
 		font: ^stbtt.fontinfo,
 		stbttGlyphIndex: c.int,
-		borderWidth: u32,
+		borderWidth: i32,
 		scale: f32,
 		range: f32,
 		alloc: ^msdf_AllocCtx,
@@ -118,7 +118,7 @@ gen_glyph_from_index :: proc(
 	defer sync.unlock(&_arena_mutex)
 
 	field_res : msdf_Result
-	status := genGlyph(&field_res, font, c.int(glyph_index), u32(border_width), scale, range, &_alloc_ctx)
+	status := genGlyph(&field_res, font, c.int(glyph_index), i32(border_width), scale, range, &_alloc_ctx)
 	defer mem.arena_free_all(&_internal_arena)
 
 	if status == 0 {
