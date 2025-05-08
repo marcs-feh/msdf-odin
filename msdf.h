@@ -12,10 +12,13 @@
 #define MSDF_H
 
 #include "stb_truetype.h"
-#include <inttypes.h>
+#include <stdint.h>
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
+
+//WARN: debugonly
+// #include <stdio.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -657,7 +660,7 @@ int msdf_isCorner(msdf_Vec2 a, msdf_Vec2 b, double threshold) {
     return msdf_v2MulInner(a, b) <= 0 || fabs(msdf_cross(a, b)) > threshold;
 }
 
-void msdf_switchColor(msdf_edgeColor *color, unsigned long long *seed, msdf_edgeColor banned)
+void msdf_switchColor(msdf_edgeColor *color, uint64_t *seed, msdf_edgeColor banned)
 {
     msdf_edgeColor combined = *color & banned;
     if (combined == msdf_edgeColor_red || combined == msdf_edgeColor_green || combined == msdf_edgeColor_blue) {
@@ -843,8 +846,8 @@ int msdf_genGlyph(msdf_Result* result, stbtt_fontinfo *font, int stbttGlyphIndex
     float borderWidthF32 = borderWidth;
     float wF32 = ceilf(glyphWidth  * scale);
     float hF32 = ceilf(glyphHeight * scale);
-    wF32 += 2.f * borderWidth;
-    hF32 += 2.f * borderWidth;
+    wF32 += 2.f * borderWidthF32;
+    hF32 += 2.f * borderWidthF32;
     int w = wF32;
     int h = hF32;
 
@@ -878,9 +881,6 @@ int msdf_genGlyph(msdf_Result* result, stbtt_fontinfo *font, int stbttGlyphIndex
 
     int32_t glyphOrgX = ix0 * scale;
     int32_t glyphOrgY = iy0 * scale;
-
-    int32_t borderWidthX = borderWidth;
-    int32_t borderWidthY = borderWidth;
 
     //   org  8,8
     // - bord 4,4
@@ -929,7 +929,7 @@ int msdf_genGlyph(msdf_Result* result, stbtt_fontinfo *font, int stbttGlyphIndex
     } msdf_Indices;
     msdf_Indices *contours = allocCtx.alloc(sizeof(msdf_Indices) * contour_count, allocCtx.ctx);
     int j = 0;
-    for (int i = 0; i <= num_verts; i++) {
+    for (int i = 0; i < num_verts; i++) { /* WARN OVERLFLOW HERE ? */
         if (verts[i].type == STBTT_vmove) {
             if (i > 0) {
                 contours[j].end = i;

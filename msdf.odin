@@ -10,7 +10,7 @@ import stbtt "vendor:stb/truetype"
 // clang -Os -fno-strict-aliasing -Wall -Wextra -fPIC -c msdf_c.c -o msdf_c.o
 foreign import msdf_c "libmsdf.o"
 
-ARENA_SIZE :: #config(MSDF_ARENA_SIZE_KB, 8192) * mem.Kilobyte
+ARENA_SIZE :: #config(MSDF_ARENA_SIZE_KB, 4096) * mem.Kilobyte
 
 @(link_prefix="msdf_")
 foreign msdf_c {
@@ -41,7 +41,7 @@ msdf_AllocCtx :: struct {
 	ctx: rawptr,
 }
 
-Result :: struct {
+Field :: struct {
 	glyph_index: int,
 	left_bearing: int,
 	advance: int,
@@ -51,13 +51,10 @@ Result :: struct {
 	y_offset: int,
 }
 
-@(require)
 _internal_arena : mem.Arena
 
-@(require)
 _arena_mutex : sync.Mutex
 
-@(require)
 _alloc_ctx : msdf_AllocCtx
 
 @(init)
@@ -95,7 +92,7 @@ gen_glyph_from_rune :: proc(
 	scale: f32,
 	range: f32,
 	allocator := context.allocator,
-) -> (result: Result, err: Error)
+) -> (result: Field, err: Error)
 {
 	index := int(stbtt.FindGlyphIndex(font, codepoint))
 	return gen_glyph_from_index(font, index, border_width, scale, range, allocator)
@@ -109,7 +106,7 @@ gen_glyph_from_index :: proc(
 	scale: f32,
 	range: f32,
 	allocator := context.allocator,
-) -> (result: Result, err: Error)
+) -> (result: Field, err: Error)
 {
 
 	if glyph_index <= 0 {
@@ -121,7 +118,6 @@ gen_glyph_from_index :: proc(
 	defer sync.unlock(&_arena_mutex)
 
 	field_res : msdf_Result
-	defer fmt.println("Peak:", _internal_arena.peak_used)
 	status := genGlyph(&field_res, font, c.int(glyph_index), u32(border_width), scale, range, &_alloc_ctx)
 	defer mem.arena_free_all(&_internal_arena)
 
@@ -139,7 +135,7 @@ gen_glyph_from_index :: proc(
 	original_pixels := field_res.rgb[:field_res.width * field_res.height * 3]
 	mem.copy_non_overlapping(raw_data(pixels), raw_data(original_pixels), slice.size(original_pixels))
 
-	result = Result {
+	result = Field {
 		glyph_index  = glyph_index,
 		left_bearing = int(field_res.left_bearing),
 		advance      = int(field_res.advance),
