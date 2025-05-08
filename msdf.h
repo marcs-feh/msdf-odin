@@ -908,7 +908,7 @@ int msdf_genGlyph(msdf_Result* result, stbtt_fontinfo *font, int stbttGlyphIndex
     }
     #endif
 
-    stbtt_vertex *verts;
+    stbtt_vertex *verts = NULL;
     int num_verts = stbtt_GetGlyphShape(font, glyphIdx, &verts);
 
     // figure out how many contours exist
@@ -929,8 +929,11 @@ int msdf_genGlyph(msdf_Result* result, stbtt_fontinfo *font, int stbttGlyphIndex
     } msdf_Indices;
     msdf_Indices *contours = allocCtx.alloc(sizeof(msdf_Indices) * contour_count, allocCtx.ctx);
     int j = 0;
-    for (int i = 0; i < num_verts; i++) { /* WARN OVERLFLOW HERE ? */
-        if (verts[i].type == STBTT_vmove) {
+    for (int i = 0; i <= num_verts; i++) { /* WARN OVERLFLOW HERE ? */
+		if (i >= num_verts) {
+            contours[j].end = i;
+        }
+        else if (verts[i].type == STBTT_vmove) {
             if (i > 0) {
                 contours[j].end = i;
                 j++;
@@ -939,9 +942,7 @@ int msdf_genGlyph(msdf_Result* result, stbtt_fontinfo *font, int stbttGlyphIndex
 			if(j < contour_count){
 				contours[j].start = i;
 			}
-        } else if (i >= num_verts) {
-            contours[j].end = i;
-        }
+        } 
     }
 
     typedef struct {
