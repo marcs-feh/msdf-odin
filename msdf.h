@@ -787,10 +787,10 @@ void msdf_cubicSplit(msdf_EdgeSegment *e, msdf_EdgeSegment *p1, msdf_EdgeSegment
     memcpy(&p1->p[2], p, sizeof(msdf_Vec2)); // p1 2
     msdf_point(p, e, 1 / 3.0);
     memcpy(&p1->p[3], p, sizeof(msdf_Vec2)); // p1 3
-    p1->color = e->color;
 
     msdf_point(p, e, 1 / 3.0);
     memcpy(&p2->p[0], p, sizeof(msdf_Vec2)); // p2 0
+
     msdf_mix(a, e->p[0], e->p[1], 1 / 3.0);
     msdf_mix(b, e->p[1], e->p[2], 1 / 3.0);
     msdf_mix(c, a, b, 1 / 3.0);
@@ -799,6 +799,7 @@ void msdf_cubicSplit(msdf_EdgeSegment *e, msdf_EdgeSegment *p1, msdf_EdgeSegment
     msdf_mix(d, a, b, 1 / 3.0);
     msdf_mix(p, c, d, 2 / 3.0);
     memcpy(&p2->p[1], p, sizeof(msdf_Vec2)); // p2 1
+
     msdf_mix(a, e->p[0], e->p[1], 2 / 3.0);
     msdf_mix(b, e->p[1], e->p[2], 2 / 3.0);
     msdf_mix(c, a, b, 2 / 3.0);
@@ -807,9 +808,9 @@ void msdf_cubicSplit(msdf_EdgeSegment *e, msdf_EdgeSegment *p1, msdf_EdgeSegment
     msdf_mix(d, a, b, 2 / 3.0);
     msdf_mix(p, c, d, 1 / 3.0);
     memcpy(&p2->p[2], p, sizeof(msdf_Vec2)); // p2 2
+
     msdf_point(p, e, 2 / 3.0);
     memcpy(&p2->p[3], p, sizeof(msdf_Vec2)); // p2 3
-    p2->color = e->color;
 
     msdf_point(p, e, 2 / 3.0);
     memcpy(&p3->p[0], p, sizeof(msdf_Vec2)); // p3 0
@@ -827,6 +828,10 @@ void msdf_cubicSplit(msdf_EdgeSegment *e, msdf_EdgeSegment *p1, msdf_EdgeSegment
     }
 
     memcpy(&p3->p[3], e->p[3], sizeof(msdf_Vec2)); // p3 3
+
+    p1->color = e->color;
+    p2->color = e->color;
+    p3->color = e->color;
 }
 
 void msdf_edgeSplit(msdf_EdgeSegment *e, msdf_EdgeSegment *p1, msdf_EdgeSegment *p2, msdf_EdgeSegment *p3)

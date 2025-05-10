@@ -451,8 +451,20 @@ Edge_Color :: enum i32 {
 // pixel_clash :: proc(a, b: Vec3, threshold: f32) -> bool {
 // 	unimplemented("Pixel Clash")
 // }
-//
-//
+
+
+direction :: proc(e: Edge_Segment, param: f32) -> (r: Vec2){
+	#partial switch e.type {
+	case .VLine:
+		return direction_linear(e, param)
+	case .VCurve:
+		return direction_quadratic(e, param)
+	case .VCubic:
+		return direction_cubic(e, param)
+	}
+	panic("Invalid segment type")
+}
+
 direction_linear :: proc(e: Edge_Segment, param: f32) -> (r: Vec2){
 	assert(e.type == .VLine)
 	r[0] = e.p[1][0] - e.p[0][0]
@@ -495,15 +507,16 @@ direction_cubic :: proc(e: Edge_Segment, param: f32) -> (r: Vec2){
 	return
 }
 
-direction :: proc(e: Edge_Segment, param: f32) -> (r: Vec2){
-	#partial switch e.type {
+point :: proc(e: Edge_Segment, param: f32) -> (r: Vec2) {
+	#partial switch(e.type){
 	case .VLine:
-		return direction_linear(e, param)
+		return point_linear(e, param)
 	case .VCurve:
-		return direction_quadratic(e, param)
+		return point_quadratic(e, param)
 	case .VCubic:
-		return direction_cubic(e, param)
+		return point_cubic(e, param)
 	}
+
 	panic("Invalid segment type")
 }
 
@@ -532,14 +545,15 @@ point_cubic :: proc(e: Edge_Segment, param: f32) -> (r: Vec2){
 	return lin.mix(b, d, param)
 }
 
-point :: proc(e: Edge_Segment, param: f32) -> (r: Vec2) {
+
+split :: proc(e: Edge_Segment) -> (p1, p2, p3: Edge_Segment){
 	#partial switch(e.type){
 	case .VLine:
-		return point_linear(e, param)
+		return split_linear(e, param)
 	case .VCurve:
-		return point_quadratic(e, param)
+		return split_quadratic(e, param)
 	case .VCubic:
-		return point_cubic(e, param)
+		return split_cubic(e, param)
 	}
 
 	panic("Invalid segment type")
@@ -557,10 +571,8 @@ split_linear :: proc(e: Edge_Segment) -> (p1, p2, p3: Edge_Segment){
 	p3.p[0] = point(e, 2.0 / 3.0)
 	p3.p[1] = e.p[1]
 
-	p1.color = e.color
-	p2.color = e.color
-	p3.color = e.color
-
+	p1.type, p2.type, p3.type = e.type, e.type, e.type
+	p1.color, p2.color, p3.color = e.color, e.color, e.color
 	return
 }
 
@@ -580,13 +592,69 @@ split_quadratic :: proc(e: Edge_Segment) -> (p1, p2, p3: Edge_Segment){
 	p3.p[1] = lin.mix(e.p[1], e.p[2], 2.0 / 3.0)
 	p3.p[2] = e.p[2]
 
-	p1.color = e.color
-	p2.color = e.color
-	p3.color = e.color
+	p1.type, p2.type, p3.type = e.type, e.type, e.type
+	p1.color, p2.color, p3.color = e.color, e.color, e.color
 	return
 }
 
 split_cubic :: proc(e: Edge_Segment) -> (p1, p2, p3: Edge_Segment){
-	unimplemented()
+	assert(e.type == .VCubic)
+
+	/* P1 */ {
+		a, b : Vec2
+		p1.p[0] = e.p[0]
+
+		p1.p[1] = lin.mix(e.p[0], e.p[1], 1.0 / 3.0)
+
+		a = lin.mix(e.p[0], e.p[1], 1.0 / 3.0)
+		b = lin.mix(e.p[1], e.p[2], 1.0 / 3.0)
+		p1.p[2] = lin.mix(a, b, 1.0 / 3.0)
+
+		p1.p[3] = point(e, 1.0 / 3.0)
+	}
+
+	/* P2 */ {
+		a, b, c, d : Vec2
+		p2.p[0] = point(e, 1.0 / 3.0)
+
+		a = lin.mix( e.p[0], e.p[1], 1.0 / 3.0)
+		b = lin.mix( e.p[1], e.p[2], 1.0 / 3.0)
+		c = lin.mix( a, b, 1.0 / 3.0)
+
+		a = lin.mix( e.p[1], e.p[2], 1.0 / 3.0)
+		b = lin.mix( e.p[2], e.p[3], 1.0 / 3.0)
+		d = lin.mix( a, b, 1.0 / 3.0)
+
+		p2.p[1] = lin.mix(c, d, 2.0 / 3.0)
+
+		a = lin.mix(e.p[0], e.p[1], 2.0 / 3.0);
+		b = lin.mix(e.p[1], e.p[2], 2.0 / 3.0);
+		c = lin.mix(a, b, 2.0 / 3.0);
+
+		a = lin.mix(e.p[1], e.p[2], 2.0 / 3.0);
+		b = lin.mix(e.p[2], e.p[3], 2.0 / 3.0);
+		d = lin.mix(a, b, 2.0 / 3.0);
+
+		p2.p[2] = lin.mix(c, d, 1.0 / 3.0)
+
+		p2.p[3] = point(e, 2.0 / 3.0)
+	}
+
+	/* P3 */ {
+		a, b : Vec2
+
+		p3.p[0] = point(e, 2.0 / 3.0)
+
+		a = lin.mix(e.p[1], e.p[2], 2.0 / 3.0);
+		b = lin.mix(e.p[2], e.p[3], 2.0 / 3.0);
+		p3.p[1] = lin.mix(a, b, 2.0 / 3.0)
+
+		p3.p[2] = lin.mix(e.p[2], e.p[3], 2.0 / 3.0)
+	}
+
+
+	p1.type, p2.type, p3.type = e.type, e.type, e.type
+	p1.color, p2.color, p3.color = e.color, e.color, e.color
+	return
 }
 
