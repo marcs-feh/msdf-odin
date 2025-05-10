@@ -1029,6 +1029,7 @@ int msdf_genGlyph(msdf_Result* result, stbtt_fontinfo *font, int stbttGlyphIndex
                     msdf_Vec2 p = {(float)v->x / cscale, (float)v->y / cscale};
                     memcpy(&e->p[0], initial, sizeof(msdf_Vec2));
                     memcpy(&e->p[1], p, sizeof(msdf_Vec2));
+
                     memcpy(&initial, p, sizeof(msdf_Vec2));
                     contour_data[i].edge_count++;
                     k++;
