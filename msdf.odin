@@ -1,10 +1,19 @@
 package msdf
 
 import "core:math"
+import "core:fmt"
 import lin "core:math/linalg"
 import stbtt "vendor:stb/truetype"
 
 Font_Info :: stbtt.fontinfo
+
+// For each position < n, this function will return -1, 0, or 1, depending on
+// whether the position is closer to the beginning, middle, or end,
+// respectively. It is guaranteed that the output will be balanced in that the
+// total for positions 0 through n-1 will be zero.
+symmetrical_trichotomy :: proc(pos, n: int) -> int {
+	return int(3 + 2.875 * f32(pos) / (f32(n - 1) - 1.4375 + 0.5)) - 3
+}
 
 gen_glyph :: proc(font: ^Font_Info,
 	glyph_index: i32,
@@ -92,22 +101,23 @@ gen_glyph :: proc(font: ^Font_Info,
 		edge_count: int,
 	}
 
-	// Process verts into series of contour-specific edge lists
-	{
+	contours := make([]Contour, contour_count)
+
+	/* Process verts into series of contour-specific edge lists */ {
 		initial : Vec2
 		cscale :: f32(64.0)
-		contour_data := make([]Contour, contour_count)
 
 		for contour_range, i in contour_ranges {
 			count := contour_range.end - contour_range.start
-			contour_data[i].edges = make([]Edge_Segment, count)
-			contour_data[i].edge_count = 0
-			defer assert(contour_data[i].edge_count == len(contour_data[i].edges), "Edge count is not matching")
+			contours[i].edges = make([]Edge_Segment, count)
+			contours[i].edge_count = 0
+
+			defer assert(contours[i].edge_count == len(contours[i].edges) - 1, "Unexpected edge count")
 
 			current_edge_index := 0
 
 			for v in verts[contour_range.start:contour_range.end] {
-				e := &contour_data[i].edges[current_edge_index]
+				e := &contours[i].edges[current_edge_index]
 				e.type = Edge_Type(v.type)
 				e.color = .White
 
@@ -122,7 +132,7 @@ gen_glyph :: proc(font: ^Font_Info,
 					e.p[1] = p
 
 					initial = p
-					contour_data[i].edge_count += 1
+					contours[i].edge_count += 1
 					current_edge_index += 1
 
 				case .VCurve:
@@ -140,7 +150,7 @@ gen_glyph :: proc(font: ^Font_Info,
                     }
 
 					initial = p
-					contour_data[i].edge_count += 1
+					contours[i].edge_count += 1
 					current_edge_index += 1
 
 				case .VCubic:
@@ -154,7 +164,7 @@ gen_glyph :: proc(font: ^Font_Info,
 					e.p[3] = p
 
 					initial = p
-					contour_data[i].edge_count += 1
+					contours[i].edge_count += 1
 					current_edge_index += 1
 
 				case .None:
@@ -164,11 +174,101 @@ gen_glyph :: proc(font: ^Font_Info,
 				}
 			}
 		}
+	}
 
+	/* Calculate edge colors */ {
+		seed : u64
+		angle_threshold :: f32(3.0)
+		cross_threshold := f32(math.sin(angle_threshold))
+		corner_count := 0
+
+		for contour in contours {
+			// NOTE: The original did a for-loop here instead of incrementing once for some reason
+			corner_count += contour.edge_count
+		}
+
+		corners := make([]int, corner_count)
+		current_corner_index := 0
+
+		for &contour, i in contours {
+			if contour.edge_count > 0 {
+				dir, prev_dir : Vec2
+
+				prev_dir = direction(contour.edges[contour.edge_count - 1], 1.0)
+
+				for edge, edge_index in contour.edges[:contour.edge_count]{
+					dir = direction(edge, 0)
+
+					dir = lin.normalize(dir)
+					prev_dir = lin.normalize(prev_dir)
+
+					if is_corner(prev_dir, dir, cross_threshold) {
+						corners[current_corner_index] = j
+						current_corner_index += 1
+					}
+					prev_dir = direction(edge, 1)
+				}
+			}
+
+			if current_corner_index == 0 { /* No corners, smooth shape */
+				for edge, i in contour.edges {
+					contour.edges[i].color = .White
+				}
+			}
+			else if current_corner_index == 1 { /* "Teardrop" like shape */
+				colors := [3]Edge_Color{.White, .White, .Black}
+				switch_color(&colors[0], &seed, .Black)
+				colors[2] = colors[0]
+				switch_color(&colors[2], &seed, .Black)
+
+				corner := corners[0]
+				if contour.edge_count >= 3 { /* Enough edges to "spread" colors */
+					m := contour.edge_count
+					for j in 0..<m {
+						// NOTE: I have zero fucking idea why this works, the original code is even more arcane
+						// contour_data[i].edges[(corner + j) % m].color = (colors + 1)[(int)(3 + 2.875 * i / (m - 1) - 1.4375 + .5) - 3];
+						contour.edges[(corner + j) % m].color = colors[1 + symmetrical_trichotomy(i, m)]
+					}
+				}
+				else if contour.edge_count >= 1 { /* Less than three edge segments for three colors -> edges must be split */
+					// parts := [7]^Edge_Segment{}
+					unimplemented()
+					// edge_split(&contour, parts[0 + 3 * corner])
+				}
+			}
+			else {
+				unimplemented()
+			}
+
+		}
 	}
 
 
+
 	unimplemented()
+}
+
+is_corner :: proc(a, b: Vec2, cross_threshold: f32) -> bool {
+	return lin.inner_product(a, b) <= 0 || abs(lin.cross(a, b)) > cross_threshold;
+}
+
+switch_color :: proc(color: ^Edge_Color, seed: ^u64, banned: Edge_Color){
+	combined := color^ & banned
+
+	if combined == .Red || combined == .Green || combined == .Blue {
+		color^ = combined ~ .White
+		return
+	}
+
+	if color^ == .Black || color^ == .White {
+		start := [3]Edge_Color{ .Cyan, .Magenta, .Yellow }
+		color^ = start[seed^ & 3]
+		seed^ /= 3
+	}
+
+	shifted := i32(color^) << (1 + (seed^ & 1))
+	color^ = Edge_Color(shifted | (shifted >> 3)) & .White
+	seed^ >>= 1
 }
 
 Vertex :: stbtt.vertex
@@ -353,55 +453,140 @@ Edge_Color :: enum i32 {
 // }
 //
 //
-// linear_direction :: proc(e: Edge_Segment, param: f32) -> (r: Vec2){
-// 	r[0] = e.p[1][0] - e.p[0][0]
-// 	r[1] = e.p[1][1] - e.p[0][1]
-// 	return
-// }
-//
-// quadratic_direction :: proc(e: Edge_Segment, param: f32) -> (r: Vec2){
-// 	a := e.p[1] - e.p[0]
-// 	b := e.p[2] - e.p[1]
-// 	return lin.mix(a, b, Vec2(param))
-// }
-//
-// cubic_direction :: proc(e: Edge_Segment, param: f32) -> (r: Vec2){
-// 	a := e.p[1] - e.p[0]
-// 	b := e.p[2] - e.p[1]
-// 	c := lin.mix(a, b, Vec2(param))
-//
-// 	a = e.p[3] - e.p[2]
-// 	d := lin.mix(b, a, param)
-// 	t := lin.mix(c, d, param)
-//
-// 	if t[0] == 0 && t[1] == 0 {
-// 		if param == 0 {
-// 			r[0] = e.p[2][0] - e.p[0][0]
-// 			r[1] = e.p[2][1] - e.p[0][1]
-// 			return
-// 		}
-// 		if param == 1 {
-// 			r[0] = e.p[3][0] - e.p[1][0]
-// 			r[1] = e.p[3][1] - e.p[1][1]
-// 			return
-// 		}
-// 	}
-//
-// 	r[0] = t[0]
-// 	r[1] = t[1]
-// 	return
-// }
-//
-// direction :: proc(e: Edge_Segment, param: f32) -> (r: Vec2){
-// 	#partial switch e.type {
-// 	case .VLine:
-// 		return linear_direction(e, param)
-// 	case .VCurve:
-// 		return quadratic_direction(e, param)
-// 	case .VCubic:
-// 		return cubic_direction(e, param)
-// 	}
-// 	unreachable()
-// }
-//
-//
+direction_linear :: proc(e: Edge_Segment, param: f32) -> (r: Vec2){
+	assert(e.type == .VLine)
+	r[0] = e.p[1][0] - e.p[0][0]
+	r[1] = e.p[1][1] - e.p[0][1]
+	return
+}
+
+direction_quadratic :: proc(e: Edge_Segment, param: f32) -> (r: Vec2){
+	assert(e.type == .VCurve)
+	a := e.p[1] - e.p[0]
+	b := e.p[2] - e.p[1]
+	return lin.mix(a, b, Vec2(param))
+}
+
+direction_cubic :: proc(e: Edge_Segment, param: f32) -> (r: Vec2){
+	assert(e.type == .VCubic)
+	a := e.p[1] - e.p[0]
+	b := e.p[2] - e.p[1]
+	c := lin.mix(a, b, Vec2(param))
+
+	a = e.p[3] - e.p[2]
+	d := lin.mix(b, a, param)
+	t := lin.mix(c, d, param)
+
+	if t[0] == 0 && t[1] == 0 {
+		if param == 0 {
+			r[0] = e.p[2][0] - e.p[0][0]
+			r[1] = e.p[2][1] - e.p[0][1]
+			return
+		}
+		if param == 1 {
+			r[0] = e.p[3][0] - e.p[1][0]
+			r[1] = e.p[3][1] - e.p[1][1]
+			return
+		}
+	}
+
+	r[0] = t[0]
+	r[1] = t[1]
+	return
+}
+
+direction :: proc(e: Edge_Segment, param: f32) -> (r: Vec2){
+	#partial switch e.type {
+	case .VLine:
+		return direction_linear(e, param)
+	case .VCurve:
+		return direction_quadratic(e, param)
+	case .VCubic:
+		return direction_cubic(e, param)
+	}
+	panic("Invalid segment type")
+}
+
+point_linear :: proc(e: Edge_Segment, param: f32) -> (r: Vec2){
+	assert(e.type == .VLine)
+	return lin.mix(e.p[0], e.p[1], param)
+}
+
+point_quadratic :: proc(e: Edge_Segment, param: f32) -> (r: Vec2){
+	assert(e.type == .VCurve)
+	a := lin.mix(e.p[0], e.p[1], param)
+	b := lin.mix(e.p[1], e.p[2], param)
+	return lin.mix(a, b, param)
+}
+
+point_cubic :: proc(e: Edge_Segment, param: f32) -> (r: Vec2){
+	assert(e.type == .VCubic)
+	p12 := lin.mix(e.p[1], e.p[2], param)
+
+	a := lin.mix(e.p[0], e.p[1], param)
+	b := lin.mix(a, p12, param)
+
+	c := lin.mix(e.p[2], e.p[3], param)
+	d := lin.mix(p12, c, param)
+
+	return lin.mix(b, d, param)
+}
+
+point :: proc(e: Edge_Segment, param: f32) -> (r: Vec2) {
+	#partial switch(e.type){
+	case .VLine:
+		return point_linear(e, param)
+	case .VCurve:
+		return point_quadratic(e, param)
+	case .VCubic:
+		return point_cubic(e, param)
+	}
+
+	panic("Invalid segment type")
+}
+
+split_linear :: proc(e: Edge_Segment) -> (p1, p2, p3: Edge_Segment){
+	assert(e.type == .VLine)
+
+	p1.p[0] = e.p[0]
+	p1.p[1] = point(e, 1.0 / 3.0)
+
+	p2.p[0] = point(e, 1.0 / 3.0)
+	p2.p[1] = point(e, 2.0 / 3.0)
+
+	p3.p[0] = point(e, 2.0 / 3.0)
+	p3.p[1] = e.p[1]
+
+	p1.color = e.color
+	p2.color = e.color
+	p3.color = e.color
+
+	return
+}
+
+split_quadratic :: proc(e: Edge_Segment) -> (p1, p2, p3: Edge_Segment){
+	assert(e.type == .VCurve)
+	p1.p[0] = e.p[0]
+	p1.p[1] = lin.mix(e.p[0], e.p[1], 1.0 / 3.0)
+	p1.p[2] = point(e, 1.0 / 3.0)
+
+	p2.p[0] = point(e, 1.0 / 3.0)
+	a := lin.mix(e.p[0], e.p[1], 5.0 / 9.0)
+	b := lin.mix(e.p[1], e.p[2], 4.0 / 9.0)
+	p2.p[1] = lin.mix(a, b, 0.5)
+	p2.p[2] = point(e, 2.0 / 3.0)
+
+	p3.p[0] = point(e, 2.0 / 3.0)
+	p3.p[1] = lin.mix(e.p[1], e.p[2], 2.0 / 3.0)
+	p3.p[2] = e.p[2]
+
+	p1.color = e.color
+	p2.color = e.color
+	p3.color = e.color
+	return
+}
+
+split_cubic :: proc(e: Edge_Segment) -> (p1, p2, p3: Edge_Segment){
+	unimplemented()
+}
+

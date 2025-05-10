@@ -34,13 +34,16 @@ sigmoid :: proc(x, s: f32) -> f32{
 // }
 
 main :: proc(){
-	// font : stbtt.fontinfo
-	// if !stbtt.InitFont(&font, raw_data(FONT), 0) {
-	// 	panic("Failed to load font")
-	// }
-	//
-	// scale := stbtt.ScaleForPixelHeight(&font, 24)
-	//
+	font : stbtt.fontinfo
+	if !stbtt.InitFont(&font, raw_data(FONT), 0) {
+		panic("Failed to load font")
+	}
+	scale := stbtt.ScaleForPixelHeight(&font, 24)
+	index := stbtt.FindGlyphIndex(&font, 'á')
+
+	res, ok := gen_glyph(&font, index, 2, scale, 0.5)
+
+
 	// begin := time.now()
 	// chars := load_ascii(&font, 256)
 	// defer {

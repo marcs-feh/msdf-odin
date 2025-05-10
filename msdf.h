@@ -97,7 +97,6 @@ int msdf_genGlyph(
 }
 #endif
 
-#ifdef MSDF_IMPLEMENTATION
 // pixel at (x, y) in bitmap (arr)
 #define msdf_pixelAt(x, y, w, arr) ((msdf_Vec3){arr[(3 * (((y)*w) + x))], arr[(3 * (((y)*w) + x)) + 1], arr[(3 * (((y)*w) + x)) + 2]})
 
@@ -1119,6 +1118,7 @@ int msdf_genGlyph(msdf_Result* result, stbtt_fontinfo *font, int stbttGlyphIndex
             if (contour_data[i].edge_count >= 3) {
                 int m = (int)contour_data[i].edge_count;
                 for (int j = 0; j < m; ++j) {
+					// ???????
                     contour_data[i].edges[(corner + j) % m].color = (colors + 1)[(int)(3 + 2.875 * i / (m - 1) - 1.4375 + .5) - 3];
                 }
             } else if (contour_data[i].edge_count >= 1) {
@@ -1452,5 +1452,4 @@ int msdf_genGlyph(msdf_Result* result, stbtt_fontinfo *font, int stbttGlyphIndex
 
     return 1;
 }
-#endif
 #endif // MSDF_H
