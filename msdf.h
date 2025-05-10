@@ -867,599 +867,601 @@ void msdf__free(void* ptr, void* ctx) {
 }
 
 int msdf_genGlyph(msdf_Result* result, stbtt_fontinfo *font, int stbttGlyphIndex, int32_t borderWidth, float scale, float range, msdf_AllocCtx* alloc) {
-msdf_AllocCtx allocCtx = {0};
+	msdf_AllocCtx allocCtx = {0};
 
-if (alloc) {
-	allocCtx = *alloc;
-} else {
-	allocCtx.alloc = msdf__alloc;
-	allocCtx.free = msdf__free;
-	allocCtx.ctx = NULL;
-}
+	if (alloc) {
+		allocCtx = *alloc;
+	} else {
+		allocCtx.alloc = msdf__alloc;
+		allocCtx.free = msdf__free;
+		allocCtx.ctx = NULL;
+	}
 
-//char f = c;
-// Funit to pixel scale
-//float scale = stbtt_ScaleForMappingEmToPixels(font, h);
-int glyphIdx = stbttGlyphIndex;
-// get glyph bounding box (scaled later)
-int ix0 = 0; int iy0 = 0; int ix1 = 0; int iy1 = 0;
+	//char f = c;
+	// Funit to pixel scale
+	//float scale = stbtt_ScaleForMappingEmToPixels(font, h);
+	int glyphIdx = stbttGlyphIndex;
+	// get glyph bounding box (scaled later)
+	int ix0 = 0; int iy0 = 0; int ix1 = 0; int iy1 = 0;
 
-float xoff = .0, yoff = .0;
-stbtt_GetGlyphBox(font, glyphIdx, &ix0, &iy0, &ix1, &iy1);
+	float xoff = .0, yoff = .0;
+	stbtt_GetGlyphBox(font, glyphIdx, &ix0, &iy0, &ix1, &iy1);
 
-float glyphWidth = ix1 - ix0;
-float glyphHeight = iy1 - iy0;
-float borderWidthF32 = borderWidth;
-float wF32 = ceilf(glyphWidth  * scale);
-float hF32 = ceilf(glyphHeight * scale);
-wF32 += 2.f * borderWidthF32;
-hF32 += 2.f * borderWidthF32;
+	float glyphWidth = ix1 - ix0;
+	float glyphHeight = iy1 - iy0;
+	float borderWidthF32 = borderWidth;
+	float wF32 = ceilf(glyphWidth  * scale);
+	float hF32 = ceilf(glyphHeight * scale);
+	wF32 += 2.f * borderWidthF32;
+	hF32 += 2.f * borderWidthF32;
 
-int w = (int)wF32;
-int h = (int)hF32;
+	int w = (int)wF32;
+	int h = (int)hF32;
 
-float* bitmap = (float*) allocCtx.alloc(w * h * 3 * sizeof(float), allocCtx.ctx);
-msdf_assert(bitmap != NULL, "Failed allocation of bitmap");
+	float* bitmap = (float*) allocCtx.alloc(w * h * 3 * sizeof(float), allocCtx.ctx);
+	msdf_assert(bitmap != NULL, "Failed allocation of bitmap");
 
-memset(bitmap, 0x0, w * h * 3 * sizeof(float));
+	memset(bitmap, 0x0, w * h * 3 * sizeof(float));
 
-// em scale
-//scale = stbtt_ScaleForMappingEmToPixels(font, h);
+	// em scale
+	//scale = stbtt_ScaleForMappingEmToPixels(font, h);
 
-//if (autofit)
-//{
+	//if (autofit)
+	//{
 
-// calculate new height
-//float newh = h + (h - (iy1 - iy0) * scale) - 4;
+	// calculate new height
+	//float newh = h + (h - (iy1 - iy0) * scale) - 4;
 
-// calculate new scale
-// see 'stbtt_ScaleForMappingEmToPixels' in stb_truetype.h
-//uint8_t *p = font->data + font->head + 18;
-//int unitsPerEm = p[0] * 256 + p[1];
-//scale = ((float)h) / ((float)unitsPerEm);
+	// calculate new scale
+	// see 'stbtt_ScaleForMappingEmToPixels' in stb_truetype.h
+	//uint8_t *p = font->data + font->head + 18;
+	//int unitsPerEm = p[0] * 256 + p[1];
+	//scale = ((float)h) / ((float)unitsPerEm);
 
-// make sure we are centered
-//xoff = .0;
-//yoff = .0;
-//}
+	// make sure we are centered
+	//xoff = .0;
+	//yoff = .0;
+	//}
 
-// get left offset and advance
-//int left_bearing, advance;
-//stbtt_GetGlyphHMetrics(font, glyphIdx, &advance, &left_bearing);
-//left_bearing *= scale;
+	// get left offset and advance
+	//int left_bearing, advance;
+	//stbtt_GetGlyphHMetrics(font, glyphIdx, &advance, &left_bearing);
+	//left_bearing *= scale;
 
-int32_t glyphOrgX = ix0 * scale;
-int32_t glyphOrgY = iy0 * scale;
+	int32_t glyphOrgX = ix0 * scale;
+	int32_t glyphOrgY = iy0 * scale;
 
-//   org  8,8
-// - bord 4,4
-// erg:   4,4
+	//   org  8,8
+	// - bord 4,4
+	// erg:   4,4
 
-// calculate offset for centering glyph on bitmap
+	// calculate offset for centering glyph on bitmap
 
-//glyphOrgX >= 2 ? (glyphOrgX) : ();
-int32_t translateX = (glyphOrgX - borderWidth); //borderWidth + ((w / 2) - ((ix1 - ix0) * scale) / 2 - leftBearingScaled);
-int32_t translateY = (glyphOrgY - borderWidth); //borderWidth + ((h / 2) - ((iy1 - iy0) * scale) / 2 - ((float) iy0) * scale);
-//translateY  = 8;
-// set the glyph metrics
-// (pre-scale them)
+	//glyphOrgX >= 2 ? (glyphOrgX) : ();
+	int32_t translateX = (glyphOrgX - borderWidth); //borderWidth + ((w / 2) - ((ix1 - ix0) * scale) / 2 - leftBearingScaled);
+	int32_t translateY = (glyphOrgY - borderWidth); //borderWidth + ((h / 2) - ((iy1 - iy0) * scale) / 2 - ((float) iy0) * scale);
+	//translateY  = 8;
+	// set the glyph metrics
+	// (pre-scale them)
 
 #if 0
-if (metrics)
-{
-	metrics->left_bearing = left_bearing;
-	metrics->advance = advance * scale;
-	metrics->ix0 = ix0 * scale;
-	metrics->ix1 = ix1 * scale;
-	metrics->iy0 = iy0 * scale;
-	metrics->iy1 = iy1 * scale;
-	metrics->glyphIdx = glyphIdx;
-}
+	if (metrics)
+	{
+		metrics->left_bearing = left_bearing;
+		metrics->advance = advance * scale;
+		metrics->ix0 = ix0 * scale;
+		metrics->ix1 = ix1 * scale;
+		metrics->iy0 = iy0 * scale;
+		metrics->iy1 = iy1 * scale;
+		metrics->glyphIdx = glyphIdx;
+	}
 #endif
 
-stbtt_vertex *verts = NULL;
-int num_verts = stbtt_GetGlyphShape(font, glyphIdx, &verts);
+	stbtt_vertex *verts = NULL;
+	int num_verts = stbtt_GetGlyphShape(font, glyphIdx, &verts);
 
-// figure out how many contours exist
-int contour_count = 0;
-for (int i = 0; i < num_verts; i++) {
-	if (verts[i].type == STBTT_vmove) {
-		contour_count++;
+	// figure out how many contours exist
+	int contour_count = 0;
+	for (int i = 0; i < num_verts; i++) {
+		if (verts[i].type == STBTT_vmove) {
+			contour_count++;
+		}
 	}
-}
 
-if (contour_count == 0) {
-	return 0;
-}
-
-// determine what vertices belong to what contours
-typedef struct {
-	size_t start, end;
-} msdf_Indices;
-msdf_Indices *contours = allocCtx.alloc(sizeof(msdf_Indices) * contour_count, allocCtx.ctx);
-int j = 0;
-for (int i = 0; i <= num_verts; i++) {
-	if (i >= num_verts) {
-		contours[j].end = i;
-		break;
+	if (contour_count == 0) {
+		return 0;
 	}
-	else if (verts[i].type == STBTT_vmove) {
-		if (i > 0) {
+
+	// determine what vertices belong to what contours
+	typedef struct {
+		size_t start, end;
+	} msdf_Indices;
+	msdf_Indices *contours = allocCtx.alloc(sizeof(msdf_Indices) * contour_count, allocCtx.ctx);
+	int j = 0;
+	for (int i = 0; i <= num_verts; i++) {
+		if (i >= num_verts) {
 			contours[j].end = i;
-			j++;
+			break;
 		}
-
-		if(j < contour_count){
-			contours[j].start = i;
-		}
-	} 
-}
-
-typedef struct {
-	msdf_signedDistance min_distance;
-	msdf_EdgeSegment *near_edge;
-	float near_param;
-} msdf_EdgePoint;
-
-typedef struct {
-	msdf_EdgeSegment *edges;
-	size_t edge_count;
-} msdf_Contour;
-
-// process verts into series of contour-specific edge lists
-msdf_Vec2 initial = {0, 0}; // fix this?
-msdf_Contour *contour_data = allocCtx.alloc(sizeof(msdf_Contour) * contour_count, allocCtx.ctx);
-float cscale = 64.0;
-for (int i = 0; i < contour_count; i++) {
-	size_t count = contours[i].end - contours[i].start;
-	contour_data[i].edges = allocCtx.alloc(sizeof(msdf_EdgeSegment) * count, allocCtx.ctx);
-	contour_data[i].edge_count = 0;
-
-	size_t k = 0;
-	for (size_t j = contours[i].start; j < contours[i].end; j++) {
-		msdf_EdgeSegment *e = &contour_data[i].edges[k];
-		stbtt_vertex *v = &verts[j];
-		e->type = v->type;
-		e->color = msdf_edgeColor_white;
-
-		switch (v->type) {
-			case STBTT_vmove: {
-				msdf_Vec2 p = {(float)v->x / cscale, (float)v->y / cscale};
-				memcpy(&initial, p, sizeof(msdf_Vec2));
-				break;
+		else if (verts[i].type == STBTT_vmove) {
+			if (i > 0) {
+				contours[j].end = i;
+				j++;
 			}
 
-			case STBTT_vline: {
-				msdf_Vec2 p = {(float)v->x / cscale, (float)v->y / cscale};
-				memcpy(&e->p[0], initial, sizeof(msdf_Vec2));
-				memcpy(&e->p[1], p, sizeof(msdf_Vec2));
-
-				memcpy(&initial, p, sizeof(msdf_Vec2));
-				contour_data[i].edge_count++;
-				k++;
-				break;
+			if(j < contour_count){
+				contours[j].start = i;
 			}
-
-			case STBTT_vcurve: {
-				msdf_Vec2 p = {(float)v->x / cscale, (float)v->y / cscale};
-				msdf_Vec2 c = {(float)v->cx / cscale, (float)v->cy / cscale};
-				memcpy(&e->p[0], initial, sizeof(msdf_Vec2));
-				memcpy(&e->p[1], c, sizeof(msdf_Vec2));
-				memcpy(&e->p[2], p, sizeof(msdf_Vec2));
-
-				if ((e->p[0][0] == e->p[1][0] && e->p[0][1] == e->p[1][1]) ||
-					(e->p[1][0] == e->p[2][0] && e->p[1][1] == e->p[2][1]))
-				{
-					e->p[1][0] = 0.5 * (e->p[0][0] + e->p[2][0]);
-					e->p[1][1] = 0.5 * (e->p[0][1] + e->p[2][1]);
-				}
-
-				memcpy(&initial, p, sizeof(msdf_Vec2));
-				contour_data[i].edge_count++;
-				k++;
-				break;
-			}
-
-			case STBTT_vcubic: {
-				msdf_Vec2 p = {(float)v->x / cscale, (float)v->y / cscale};
-				msdf_Vec2 c = {(float)v->cx / cscale, (float)v->cy / cscale};
-				msdf_Vec2 c1 = {(float)v->cx1 / cscale, (float)v->cy1 / cscale};
-				memcpy(&e->p[0], initial, sizeof(msdf_Vec2));
-				memcpy(&e->p[1], c, sizeof(msdf_Vec2));
-				memcpy(&e->p[2], c1, sizeof(msdf_Vec2));
-				memcpy(&e->p[3], p, sizeof(msdf_Vec2));
-				memcpy(&initial, p, sizeof(msdf_Vec2));
-				contour_data[i].edge_count++;
-				k++;
-				break;
-			}
-		}
-	}
-}
-
-// calculate edge-colors
-uint64_t seed = 0;
-float anglethreshold = 3.0;
-float crossthreshold = sin(anglethreshold);
-size_t corner_count = 0;
-for (int i = 0; i < contour_count; ++i) {
-	for (size_t j = 0; j < contour_data[i].edge_count; ++j) {
-		corner_count++;
-	}
-}
-
-int *corners = allocCtx.alloc(sizeof(int) * corner_count, allocCtx.ctx);
-int cornerIndex = 0;
-for (int i = 0; i < contour_count; ++i) {
-
-	if (contour_data[i].edge_count > 0) {
-		msdf_Vec2 prev_dir = {0}, dir = {0};
-		msdf_direction(prev_dir, &contour_data[i].edges[contour_data[i].edge_count - 1], 1);
-
-		int index = 0;
-		for (size_t j = 0; j < contour_data[i].edge_count; ++j, ++index) {
-			msdf_EdgeSegment *e = &contour_data[i].edges[j];
-			msdf_direction(dir, e, 0);
-			msdf_v2Norm(dir, dir);
-			msdf_v2Norm(prev_dir, prev_dir);
-			if (msdf_isCorner(prev_dir, dir, crossthreshold)) {
-				corners[cornerIndex++] = index;
-			}
-			msdf_direction(prev_dir, e, 1);
-		}
+		} 
 	}
 
-	if (cornerIndex == 0) {
-		for (size_t j = 0; j < contour_data[i].edge_count; ++j) {
-			contour_data[i].edges[j].color = msdf_edgeColor_white;
-		}
-	} else if (cornerIndex == 1) {
-		msdf_edgeColor colors[3] = {msdf_edgeColor_white, msdf_edgeColor_white};
-		msdf_switchColor(&colors[0], &seed, msdf_edgeColor_black);
-		colors[2] = colors[0];
-		msdf_switchColor(&colors[2], &seed, msdf_edgeColor_black);
+	typedef struct {
+		msdf_signedDistance min_distance;
+		msdf_EdgeSegment *near_edge;
+		float near_param;
+	} msdf_EdgePoint;
 
-		int corner = corners[0];
-		if (contour_data[i].edge_count >= 3) {
-			int m = (int)contour_data[i].edge_count;
-			for (int j = 0; j < m; ++j) {
-				// ???????
-				contour_data[i].edges[(corner + j) % m].color = (colors + 1)[(int)(3 + 2.875 * i / (m - 1) - 1.4375 + .5) - 3];
-			}
-		} else if (contour_data[i].edge_count >= 1) {
-			msdf_EdgeSegment *parts[7] = {NULL};
-			msdf_edgeSplit(&contour_data[i].edges[0], parts[0 + 3 * corner], parts[1 + 3 * corner], parts[2 + 3 * corner]);
-			if (contour_data[i].edge_count >= 2) {
-				msdf_edgeSplit(&contour_data[i].edges[1], parts[3 - 3 * corner], parts[4 - 3 * corner], parts[5 - 3 * corner]);
-				parts[0]->color = parts[1]->color = colors[0];
-				parts[2]->color = parts[3]->color = colors[1];
-				parts[4]->color = parts[5]->color = colors[2];
-			} else {
-				parts[0]->color = colors[0];
-				parts[1]->color = colors[1];
-				parts[2]->color = colors[2];
-			}
-			if (allocCtx.free) {
-				allocCtx.free(contour_data[i].edges, allocCtx.ctx);
-			}
-			contour_data[i].edges = allocCtx.alloc(sizeof(msdf_EdgeSegment) * 7, allocCtx.ctx);
-			contour_data[i].edge_count = 0;
-			int index = 0;
-			for (int j = 0; parts[j]; ++j) {
-				memcpy(&contour_data[i].edges[index++], &parts[j], sizeof(msdf_EdgeSegment));
-				contour_data[i].edge_count++;
-			}
-		}
-	} else {
-		size_t spline = 0;
-		int start = corners[0];
-		int m = (int)contour_data[i].edge_count;
+	typedef struct {
+		msdf_EdgeSegment *edges;
+		size_t edge_count;
+	} msdf_Contour;
 
-		msdf_edgeColor color = msdf_edgeColor_white;
-		msdf_switchColor(&color, &seed, msdf_edgeColor_black);
-		msdf_edgeColor initial_color = color;
-		for (int j = 0; j < m; ++j) {
-			int index = (start + j) % m;
-			if ((spline + 1) < corner_count && corners[spline + 1] == index) {
-				++spline;
-
-				msdf_edgeColor s = (msdf_edgeColor)((spline == corner_count - 1) * initial_color);
-				msdf_switchColor(&color, &seed, s);
-			}
-			contour_data[i].edges[index].color = color;
-		}
-	}
-}
-
-if (allocCtx.free) {
-	allocCtx.free(corners, allocCtx.ctx);
-}
-
-// normalize shape
-for (int i = 0; i < contour_count; i++) {
-	if (contour_data[i].edge_count == 1) {
-		msdf_EdgeSegment parts[3] = {0};
-		msdf_edgeSplit(&contour_data[i].edges[0], &parts[0], &parts[1], &parts[2]);
-		if (allocCtx.free) {
-			allocCtx.free(contour_data[i].edges, allocCtx.ctx);
-		}
-		contour_data[i].edges = allocCtx.alloc(sizeof(msdf_EdgeSegment) * 3, allocCtx.ctx);
-		contour_data[i].edge_count = 3;
-		for (int j = 0; j < 3; j++) {
-			memcpy(&contour_data[i].edges[j], &parts[j], sizeof(msdf_EdgeSegment));
-		}
-	}
-}
-
-// calculate windings
-int *windings = allocCtx.alloc(sizeof(int) * contour_count, allocCtx.ctx);
-for (int i = 0; i < contour_count; i++) {
-	size_t edge_count = contour_data[i].edge_count;
-	if (edge_count == 0) {
-		windings[i] = 0;
-		continue;
-	}
-
-	float total = 0;
-
-	if (edge_count == 1) {
-		msdf_Vec2 a, b, c;
-		msdf_point(a, &contour_data[i].edges[0], 0);
-		msdf_point(b, &contour_data[i].edges[0], 1 / 3.0);
-		msdf_point(c, &contour_data[i].edges[0], 2 / 3.0);
-		total += msdf_shoelace(a, b);
-		total += msdf_shoelace(b, c);
-		total += msdf_shoelace(c, a);
-	} else if (edge_count == 2) {
-		msdf_Vec2 a = {0}, b = {0}, c = {0}, d = {0};
-		msdf_point(a, &contour_data[i].edges[0], 0);
-		msdf_point(b, &contour_data[i].edges[0], 0.5);
-		msdf_point(c, &contour_data[i].edges[1], 0);
-		msdf_point(d, &contour_data[i].edges[1], 0.5);
-		total += msdf_shoelace(a, b);
-		total += msdf_shoelace(b, c);
-		total += msdf_shoelace(c, d);
-		total += msdf_shoelace(d, a);
-	} else {
-		msdf_Vec2 prev = {0};
-		msdf_point(prev, &contour_data[i].edges[edge_count - 1], 0);
-		for (size_t j = 0; j < edge_count; j++) {
-			msdf_Vec2 cur = {0};
-			msdf_point(cur, &contour_data[i].edges[j], 0);
-			total += msdf_shoelace(prev, cur);
-			memcpy(prev, cur, sizeof(msdf_Vec2));
-		}
-	}
-
-	windings[i] = ((0 < total) - (total < 0)); // sign
-}
-
-typedef struct {
-	float r, g, b;
-	float med;
-} msdf_MultiDistance;
-
-msdf_MultiDistance *contour_sd = allocCtx.alloc(sizeof(msdf_MultiDistance) * contour_count, allocCtx.ctx);
-
-float invRange = 1.0f / range;
-
-for (int y = 0; y < h; ++y) {
-	int row = iy0 > iy1 ? y : h - y - 1;
-	for (int x = 0; x < w; ++x) {
-		float a64 = 64;
-		msdf_Vec2 p = {((float)translateX + (float)x + xoff) / (scale * a64), ((float)translateY + (float)y + yoff) / (scale * a64)};
-		//p[0] = ;
-		//p[1] = ;
-		msdf_EdgePoint sr = {0}, sg = {0}, sb = {0};
-		sr.near_edge = sg.near_edge = sb.near_edge = NULL;
-		sr.near_param = sg.near_param = sb.near_param = 0;
-		sr.min_distance.dist = sg.min_distance.dist = sb.min_distance.dist = MSDF_INF;
-		sr.min_distance.d = sg.min_distance.d = sb.min_distance.d = 1;
-		float d = fabs(MSDF_INF);
-		float neg_dist = -MSDF_INF;
-		float pos_dist = MSDF_INF;
-		int winding = 0;
-
-		// calculate distance to contours from current point (and if its inside or outside of the shape?)
-		for (int j = 0; j < contour_count; ++j) {
-			msdf_EdgePoint r = {0}, g = {0}, b = {0};
-			r.near_edge = g.near_edge = b.near_edge = NULL;
-			r.near_param = g.near_param = b.near_param = 0;
-			r.min_distance.dist = g.min_distance.dist = b.min_distance.dist = MSDF_INF;
-			r.min_distance.d = g.min_distance.d = b.min_distance.d = 1;
-
-			for (size_t k = 0; k < contour_data[j].edge_count; ++k) {
-				msdf_EdgeSegment *e = &contour_data[j].edges[k];
-				float param = {0};
-				msdf_signedDistance distance = {0};
-				distance.dist = MSDF_INF;
-				distance.d = 1;
-
-				// calculate signed distance
-				switch (e->type) {
-					case STBTT_vline: {
-						distance = msdf_linearDist(e, p, &param);
-						break;
-					}
-					case STBTT_vcurve: {
-						distance = msdf_quadraticDist(e, p, &param);
-						break;
-					}
-					case STBTT_vcubic: {
-						distance = msdf_cubicDist(e, p, &param);
-						break;
-					}
-				}
-
-				if (e->color & msdf_edgeColor_red && msdf_signedCompare(distance, r.min_distance)) {
-					r.min_distance = distance;
-					r.near_edge = e;
-					r.near_param = param;
-				}
-				if (e->color & msdf_edgeColor_green && msdf_signedCompare(distance, g.min_distance)) {
-					g.min_distance = distance;
-					g.near_edge = e;
-					g.near_param = param;
-				}
-				if (e->color & msdf_edgeColor_blue && msdf_signedCompare(distance, b.min_distance)) {
-					b.min_distance = distance;
-					b.near_edge = e;
-					b.near_param = param;
-				}
-			}
-
-			if (msdf_signedCompare(r.min_distance, sr.min_distance)) {
-				sr = r;
-			}
-			if (msdf_signedCompare(g.min_distance, sg.min_distance)) {
-				sg = g;
-			}
-			if (msdf_signedCompare(b.min_distance, sb.min_distance)) {
-				sb = b;
-			}
-
-			float med_min_dist = fabs(msdf_median(r.min_distance.dist, g.min_distance.dist, b.min_distance.dist));
-
-			if (med_min_dist < d) {
-				d = med_min_dist;
-				winding = -windings[j];
-			}
-
-			if (r.near_edge) {
-				msdf_distToPseudo(&r.min_distance, p, r.near_param, r.near_edge);
-			}
-			if (g.near_edge) {
-				msdf_distToPseudo(&g.min_distance, p, g.near_param, g.near_edge);
-			}
-			if (b.near_edge) {
-				msdf_distToPseudo(&b.min_distance, p, b.near_param, b.near_edge);
-			}
-
-			med_min_dist = msdf_median(r.min_distance.dist, g.min_distance.dist, b.min_distance.dist);
-			contour_sd[j].r = r.min_distance.dist;
-			contour_sd[j].g = g.min_distance.dist;
-			contour_sd[j].b = b.min_distance.dist;
-			contour_sd[j].med = med_min_dist;
-
-			if (windings[j] > 0 && med_min_dist >= 0 && fabs(med_min_dist) < fabs(pos_dist)) {
-				pos_dist = med_min_dist;
-			}
-			if (windings[j] < 0 && med_min_dist <= 0 && fabs(med_min_dist) < fabs(neg_dist)) {
-				neg_dist = med_min_dist;
-			}
-		}
-
-		if (sr.near_edge) {
-			msdf_distToPseudo(&sr.min_distance, p, sr.near_param, sr.near_edge);
-		}
-		if (sg.near_edge) {
-			msdf_distToPseudo(&sg.min_distance, p, sg.near_param, sg.near_edge);
-		}
-		if (sb.near_edge) {
-			msdf_distToPseudo(&sb.min_distance, p, sb.near_param, sb.near_edge);
-		}
-
-		msdf_MultiDistance msd = {
-			.r = MSDF_INF,
-			.g = MSDF_INF,
-			.b = MSDF_INF,
-			.med = MSDF_INF,
-		};
-
-		if (pos_dist >= 0 && fabs(pos_dist) <= fabs(neg_dist)) {
-			msd.med = MSDF_INF;
-			winding = 1;
-			for (int i = 0; i < contour_count; ++i) {
-				if (windings[i] > 0 && contour_sd[i].med > msd.med && fabs(contour_sd[i].med) < fabs(neg_dist)) {
-					msd = contour_sd[i];
-				}
-			}
-		} else if (neg_dist <= 0 && fabs(neg_dist) <= fabs(pos_dist)) {
-			msd.med = -MSDF_INF;
-			winding = -1;
-			for (int i = 0; i < contour_count; ++i) {
-				if (windings[i] < 0 && contour_sd[i].med < msd.med && fabs(contour_sd[i].med) < fabs(pos_dist)) {
-					msd = contour_sd[i];
-				}
-			}
-		}
-
-		for (int i = 0; i < contour_count; ++i) {
-			if (windings[i] != winding && fabs(contour_sd[i].med) < fabs(msd.med)) {
-				msd = contour_sd[i];
-			}
-		}
-
-		if (msdf_median(sr.min_distance.dist, sg.min_distance.dist, sb.min_distance.dist) == msd.med) {
-			msd.r = sr.min_distance.dist;
-			msd.g = sg.min_distance.dist;
-			msd.b = sb.min_distance.dist;
-		}
-
-		size_t index = 3 * ((row * w) + x);
-
-		float mr = ((float)msd.r) * invRange + 0.5f;
-		float mg = ((float)msd.g) * invRange + 0.5f;
-		float mb = ((float)msd.b) * invRange + 0.5f;
-		bitmap[index + 0] = mr;
-		bitmap[index + 1] = mg;
-		bitmap[index + 2] = mb;
-
-	}
-}
-
-if (allocCtx.free) {
+	// process verts into series of contour-specific edge lists
+	msdf_Vec2 initial = {0, 0}; // fix this?
+	msdf_Contour *contour_data = allocCtx.alloc(sizeof(msdf_Contour) * contour_count, allocCtx.ctx);
+	float cscale = 64.0;
 	for (int i = 0; i < contour_count; i++) {
-		allocCtx.free(contour_data[i].edges, allocCtx.ctx);
+		size_t count = contours[i].end - contours[i].start;
+		contour_data[i].edges = allocCtx.alloc(sizeof(msdf_EdgeSegment) * count, allocCtx.ctx);
+		contour_data[i].edge_count = 0;
+
+		size_t k = 0;
+		for (size_t j = contours[i].start; j < contours[i].end; j++) {
+			msdf_EdgeSegment *e = &contour_data[i].edges[k];
+			stbtt_vertex *v = &verts[j];
+			e->type = v->type;
+			e->color = msdf_edgeColor_white;
+
+			switch (v->type) {
+				case STBTT_vmove: {
+					msdf_Vec2 p = {(float)v->x / cscale, (float)v->y / cscale};
+					memcpy(&initial, p, sizeof(msdf_Vec2));
+					break;
+				}
+
+				case STBTT_vline: {
+					msdf_Vec2 p = {(float)v->x / cscale, (float)v->y / cscale};
+					memcpy(&e->p[0], initial, sizeof(msdf_Vec2));
+					memcpy(&e->p[1], p, sizeof(msdf_Vec2));
+
+					memcpy(&initial, p, sizeof(msdf_Vec2));
+					contour_data[i].edge_count++;
+					k++;
+					break;
+				}
+
+				case STBTT_vcurve: {
+					msdf_Vec2 p = {(float)v->x / cscale, (float)v->y / cscale};
+					msdf_Vec2 c = {(float)v->cx / cscale, (float)v->cy / cscale};
+					memcpy(&e->p[0], initial, sizeof(msdf_Vec2));
+					memcpy(&e->p[1], c, sizeof(msdf_Vec2));
+					memcpy(&e->p[2], p, sizeof(msdf_Vec2));
+
+					if ((e->p[0][0] == e->p[1][0] && e->p[0][1] == e->p[1][1]) ||
+						(e->p[1][0] == e->p[2][0] && e->p[1][1] == e->p[2][1]))
+					{
+						e->p[1][0] = 0.5 * (e->p[0][0] + e->p[2][0]);
+						e->p[1][1] = 0.5 * (e->p[0][1] + e->p[2][1]);
+					}
+
+					memcpy(&initial, p, sizeof(msdf_Vec2));
+					contour_data[i].edge_count++;
+					k++;
+					break;
+				}
+
+				case STBTT_vcubic: {
+					msdf_Vec2 p = {(float)v->x / cscale, (float)v->y / cscale};
+					msdf_Vec2 c = {(float)v->cx / cscale, (float)v->cy / cscale};
+					msdf_Vec2 c1 = {(float)v->cx1 / cscale, (float)v->cy1 / cscale};
+					memcpy(&e->p[0], initial, sizeof(msdf_Vec2));
+					memcpy(&e->p[1], c, sizeof(msdf_Vec2));
+					memcpy(&e->p[2], c1, sizeof(msdf_Vec2));
+					memcpy(&e->p[3], p, sizeof(msdf_Vec2));
+					memcpy(&initial, p, sizeof(msdf_Vec2));
+					contour_data[i].edge_count++;
+					k++;
+					break;
+				}
+			}
+		}
 	}
-	allocCtx.free(contour_data, allocCtx.ctx);
-	allocCtx.free(contour_sd, allocCtx.ctx);
-	allocCtx.free(contours, allocCtx.ctx);
-	allocCtx.free(windings, allocCtx.ctx);
-}
-stbtt_FreeShape(font, verts);
 
-// msdf error correction
-typedef struct {
-	int x, y;
-} msdf_Clash;
-msdf_Clash *clashes = allocCtx.alloc(sizeof(msdf_Clash) * w * h, allocCtx.ctx);
-size_t cindex = 0;
+	// calculate edge-colors
+	uint64_t seed = 0;
+	float anglethreshold = 3.0;
+	float crossthreshold = sin(anglethreshold);
+	size_t corner_count = 0;
+	for (int i = 0; i < contour_count; ++i) {
+		for (size_t j = 0; j < contour_data[i].edge_count; ++j) {
+			corner_count++;
+		}
+	}
 
-float tx = MSDF_EDGE_THRESHOLD / (scale * range);
-float ty = MSDF_EDGE_THRESHOLD / (scale * range);
-for (int y = 0; y < h; y++) {
-	for (int x = 0; x < w; x++) {
-		if ((x > 0     && msdf_pixelClash(msdf_pixelAt(x, y, w, bitmap), msdf_pixelAt(msdf_max(x - 1, 0), y, w, bitmap), tx)) ||
-			(x < w - 1 && msdf_pixelClash(msdf_pixelAt(x, y, w, bitmap), msdf_pixelAt(msdf_min(x + 1, w - 1), y, w, bitmap), tx)) ||
-			(y > 0     && msdf_pixelClash(msdf_pixelAt(x, y, w, bitmap), msdf_pixelAt(x, msdf_max(y - 1, 0), w, bitmap), ty)) ||
-			(y < h - 1 && msdf_pixelClash(msdf_pixelAt(x, y, w, bitmap), msdf_pixelAt(x, msdf_min(y + 1, h - 1), w, bitmap), ty)))
-		{
-			clashes[cindex].x = x;
-			clashes[cindex].y = y;
-			cindex += 1;
+	int *corners = allocCtx.alloc(sizeof(int) * corner_count, allocCtx.ctx);
+	int cornerIndex = 0;
+	for (int i = 0; i < contour_count; ++i) {
+
+		if (contour_data[i].edge_count > 0) {
+			msdf_Vec2 prev_dir = {0}, dir = {0};
+			msdf_direction(prev_dir, &contour_data[i].edges[contour_data[i].edge_count - 1], 1);
+
+			int index = 0;
+			for (size_t j = 0; j < contour_data[i].edge_count; ++j, ++index) {
+				msdf_EdgeSegment *e = &contour_data[i].edges[j];
+				msdf_direction(dir, e, 0);
+				msdf_v2Norm(dir, dir);
+				msdf_v2Norm(prev_dir, prev_dir);
+				if (msdf_isCorner(prev_dir, dir, crossthreshold)) {
+					corners[cornerIndex++] = index;
+				}
+				msdf_direction(prev_dir, e, 1);
+			}
 		}
 
-	}
+		if (cornerIndex == 0) {
+			for (size_t j = 0; j < contour_data[i].edge_count; ++j) {
+				contour_data[i].edges[j].color = msdf_edgeColor_white;
+			}
+		} else if (cornerIndex == 1) {
+			msdf_edgeColor colors[3] = {msdf_edgeColor_white, msdf_edgeColor_white};
+			msdf_switchColor(&colors[0], &seed, msdf_edgeColor_black);
+			colors[2] = colors[0];
+			msdf_switchColor(&colors[2], &seed, msdf_edgeColor_black);
 
-	for (size_t i = 0; i < cindex; i++) {
-		size_t index = 3 * ((clashes[i].y * w) + clashes[i].x);
-		float med = msdf_median(bitmap[index], bitmap[index + 1], bitmap[index + 2]);
-		bitmap[index + 0] = med;
-		bitmap[index + 1] = med;
-		bitmap[index + 2] = med;
+			int corner = corners[0];
+			if (contour_data[i].edge_count >= 3) {
+				int m = (int)contour_data[i].edge_count;
+				for (int j = 0; j < m; ++j) {
+					// ???????
+					contour_data[i].edges[(corner + j) % m].color = (colors + 1)[(int)(3 + 2.875 * i / (m - 1) - 1.4375 + .5) - 3];
+				}
+			} else if (contour_data[i].edge_count >= 1) {
+				msdf_EdgeSegment parts[7] = {NULL};
+				msdf_edgeSplit(&contour_data[i].edges[0], &parts[0 + 3 * corner], &parts[1 + 3 * corner], &parts[2 + 3 * corner]);
+
+				if (contour_data[i].edge_count >= 2) {
+					msdf_edgeSplit(&contour_data[i].edges[1], &parts[3 - 3 * corner], &parts[4 - 3 * corner], &parts[5 - 3 * corner]);
+					parts[0].color = parts[1].color = colors[0];
+					parts[2].color = parts[3].color = colors[1];
+					parts[4].color = parts[5].color = colors[2];
+				} else {
+					parts[0].color = colors[0];
+					parts[1].color = colors[1];
+					parts[2].color = colors[2];
+				}
+				if (allocCtx.free) {
+					allocCtx.free(contour_data[i].edges, allocCtx.ctx);
+				}
+				contour_data[i].edges = allocCtx.alloc(sizeof(msdf_EdgeSegment) * 7, allocCtx.ctx);
+				contour_data[i].edge_count = 0;
+				int index = 0;
+				for (int j = 0; j < 7; ++j) {
+					memcpy(&contour_data[i].edges[index++], &parts[j], sizeof(msdf_EdgeSegment));
+					contour_data[i].edge_count++;
+				}
+			}
+		} else {
+			size_t spline = 0;
+			int start = corners[0];
+			int m = (int)contour_data[i].edge_count;
+
+			msdf_edgeColor color = msdf_edgeColor_white;
+			msdf_switchColor(&color, &seed, msdf_edgeColor_black);
+			msdf_edgeColor initial_color = color;
+			for (int j = 0; j < m; ++j) {
+				int index = (start + j) % m;
+				if ((spline + 1) < corner_count && corners[spline + 1] == index) {
+					++spline;
+
+					msdf_edgeColor s = (msdf_edgeColor)((spline == corner_count - 1) * initial_color);
+					msdf_switchColor(&color, &seed, s);
+				}
+				contour_data[i].edges[index].color = color;
+			}
+		}
 	}
 
 	if (allocCtx.free) {
-		allocCtx.free(clashes, allocCtx.ctx);
+		allocCtx.free(corners, allocCtx.ctx);
 	}
 
-	result->glyphIdx = glyphIdx;
-	result->rgb = bitmap;
-	result->width = w;
-	result->height = h;
-	result->yOffset = translateY;
+	// normalize shape
+	for (int i = 0; i < contour_count; i++) {
+		if (contour_data[i].edge_count == 1) {
+			msdf_EdgeSegment parts[3] = {0};
+			msdf_edgeSplit(&contour_data[i].edges[0], &parts[0], &parts[1], &parts[2]);
+			if (allocCtx.free) {
+				allocCtx.free(contour_data[i].edges, allocCtx.ctx);
+			}
+			contour_data[i].edges = allocCtx.alloc(sizeof(msdf_EdgeSegment) * 3, allocCtx.ctx);
+			contour_data[i].edge_count = 3;
+			for (int j = 0; j < 3; j++) {
+				memcpy(&contour_data[i].edges[j], &parts[j], sizeof(msdf_EdgeSegment));
+			}
+		}
+	}
 
-	return 1;
+	// calculate windings
+	int *windings = allocCtx.alloc(sizeof(int) * contour_count, allocCtx.ctx);
+	for (int i = 0; i < contour_count; i++) {
+		size_t edge_count = contour_data[i].edge_count;
+		if (edge_count == 0) {
+			windings[i] = 0;
+			continue;
+		}
+
+		float total = 0;
+
+		if (edge_count == 1) {
+			msdf_Vec2 a, b, c;
+			msdf_point(a, &contour_data[i].edges[0], 0);
+			msdf_point(b, &contour_data[i].edges[0], 1 / 3.0);
+			msdf_point(c, &contour_data[i].edges[0], 2 / 3.0);
+			total += msdf_shoelace(a, b);
+			total += msdf_shoelace(b, c);
+			total += msdf_shoelace(c, a);
+		} else if (edge_count == 2) {
+			msdf_Vec2 a = {0}, b = {0}, c = {0}, d = {0};
+			msdf_point(a, &contour_data[i].edges[0], 0);
+			msdf_point(b, &contour_data[i].edges[0], 0.5);
+			msdf_point(c, &contour_data[i].edges[1], 0);
+			msdf_point(d, &contour_data[i].edges[1], 0.5);
+			total += msdf_shoelace(a, b);
+			total += msdf_shoelace(b, c);
+			total += msdf_shoelace(c, d);
+			total += msdf_shoelace(d, a);
+		} else {
+			msdf_Vec2 prev = {0};
+			msdf_point(prev, &contour_data[i].edges[edge_count - 1], 0);
+			for (size_t j = 0; j < edge_count; j++) {
+				msdf_Vec2 cur = {0};
+				msdf_point(cur, &contour_data[i].edges[j], 0);
+				total += msdf_shoelace(prev, cur);
+				memcpy(prev, cur, sizeof(msdf_Vec2));
+			}
+		}
+
+		windings[i] = ((0 < total) - (total < 0)); // sign
+	}
+
+	typedef struct {
+		float r, g, b;
+		float med;
+	} msdf_MultiDistance;
+
+	msdf_MultiDistance *contour_sd = allocCtx.alloc(sizeof(msdf_MultiDistance) * contour_count, allocCtx.ctx);
+
+	float invRange = 1.0f / range;
+
+	for (int y = 0; y < h; ++y) {
+		int row = iy0 > iy1 ? y : h - y - 1;
+		for (int x = 0; x < w; ++x) {
+			float a64 = 64;
+			msdf_Vec2 p = {((float)translateX + (float)x + xoff) / (scale * a64), ((float)translateY + (float)y + yoff) / (scale * a64)};
+			//p[0] = ;
+			//p[1] = ;
+			msdf_EdgePoint sr = {0}, sg = {0}, sb = {0};
+			sr.near_edge = sg.near_edge = sb.near_edge = NULL;
+			sr.near_param = sg.near_param = sb.near_param = 0;
+			sr.min_distance.dist = sg.min_distance.dist = sb.min_distance.dist = MSDF_INF;
+			sr.min_distance.d = sg.min_distance.d = sb.min_distance.d = 1;
+			float d = fabs(MSDF_INF);
+			float neg_dist = -MSDF_INF;
+			float pos_dist = MSDF_INF;
+			int winding = 0;
+
+			// calculate distance to contours from current point (and if its inside or outside of the shape?)
+			for (int j = 0; j < contour_count; ++j) {
+				msdf_EdgePoint r = {0}, g = {0}, b = {0};
+				r.near_edge = g.near_edge = b.near_edge = NULL;
+				r.near_param = g.near_param = b.near_param = 0;
+				r.min_distance.dist = g.min_distance.dist = b.min_distance.dist = MSDF_INF;
+				r.min_distance.d = g.min_distance.d = b.min_distance.d = 1;
+
+				for (size_t k = 0; k < contour_data[j].edge_count; ++k) {
+					msdf_EdgeSegment *e = &contour_data[j].edges[k];
+					float param = {0};
+					msdf_signedDistance distance = {0};
+					distance.dist = MSDF_INF;
+					distance.d = 1;
+
+					// calculate signed distance
+					switch (e->type) {
+						case STBTT_vline: {
+							distance = msdf_linearDist(e, p, &param);
+							break;
+						}
+						case STBTT_vcurve: {
+							distance = msdf_quadraticDist(e, p, &param);
+							break;
+						}
+						case STBTT_vcubic: {
+							distance = msdf_cubicDist(e, p, &param);
+							break;
+						}
+					}
+
+					if (e->color & msdf_edgeColor_red && msdf_signedCompare(distance, r.min_distance)) {
+						r.min_distance = distance;
+						r.near_edge = e;
+						r.near_param = param;
+					}
+					if (e->color & msdf_edgeColor_green && msdf_signedCompare(distance, g.min_distance)) {
+						g.min_distance = distance;
+						g.near_edge = e;
+						g.near_param = param;
+					}
+					if (e->color & msdf_edgeColor_blue && msdf_signedCompare(distance, b.min_distance)) {
+						b.min_distance = distance;
+						b.near_edge = e;
+						b.near_param = param;
+					}
+				}
+
+				if (msdf_signedCompare(r.min_distance, sr.min_distance)) {
+					sr = r;
+				}
+				if (msdf_signedCompare(g.min_distance, sg.min_distance)) {
+					sg = g;
+				}
+				if (msdf_signedCompare(b.min_distance, sb.min_distance)) {
+					sb = b;
+				}
+
+				float med_min_dist = fabs(msdf_median(r.min_distance.dist, g.min_distance.dist, b.min_distance.dist));
+
+				if (med_min_dist < d) {
+					d = med_min_dist;
+					winding = -windings[j];
+				}
+
+				if (r.near_edge) {
+					msdf_distToPseudo(&r.min_distance, p, r.near_param, r.near_edge);
+				}
+				if (g.near_edge) {
+					msdf_distToPseudo(&g.min_distance, p, g.near_param, g.near_edge);
+				}
+				if (b.near_edge) {
+					msdf_distToPseudo(&b.min_distance, p, b.near_param, b.near_edge);
+				}
+
+				med_min_dist = msdf_median(r.min_distance.dist, g.min_distance.dist, b.min_distance.dist);
+				contour_sd[j].r = r.min_distance.dist;
+				contour_sd[j].g = g.min_distance.dist;
+				contour_sd[j].b = b.min_distance.dist;
+				contour_sd[j].med = med_min_dist;
+
+				if (windings[j] > 0 && med_min_dist >= 0 && fabs(med_min_dist) < fabs(pos_dist)) {
+					pos_dist = med_min_dist;
+				}
+				if (windings[j] < 0 && med_min_dist <= 0 && fabs(med_min_dist) < fabs(neg_dist)) {
+					neg_dist = med_min_dist;
+				}
+			}
+
+			if (sr.near_edge) {
+				msdf_distToPseudo(&sr.min_distance, p, sr.near_param, sr.near_edge);
+			}
+			if (sg.near_edge) {
+				msdf_distToPseudo(&sg.min_distance, p, sg.near_param, sg.near_edge);
+			}
+			if (sb.near_edge) {
+				msdf_distToPseudo(&sb.min_distance, p, sb.near_param, sb.near_edge);
+			}
+
+			msdf_MultiDistance msd = {
+				.r = MSDF_INF,
+				.g = MSDF_INF,
+				.b = MSDF_INF,
+				.med = MSDF_INF,
+			};
+
+			if (pos_dist >= 0 && fabs(pos_dist) <= fabs(neg_dist)) {
+				msd.med = MSDF_INF;
+				winding = 1;
+				for (int i = 0; i < contour_count; ++i) {
+					if (windings[i] > 0 && contour_sd[i].med > msd.med && fabs(contour_sd[i].med) < fabs(neg_dist)) {
+						msd = contour_sd[i];
+					}
+				}
+			} else if (neg_dist <= 0 && fabs(neg_dist) <= fabs(pos_dist)) {
+				msd.med = -MSDF_INF;
+				winding = -1;
+				for (int i = 0; i < contour_count; ++i) {
+					if (windings[i] < 0 && contour_sd[i].med < msd.med && fabs(contour_sd[i].med) < fabs(pos_dist)) {
+						msd = contour_sd[i];
+					}
+				}
+			}
+
+			for (int i = 0; i < contour_count; ++i) {
+				if (windings[i] != winding && fabs(contour_sd[i].med) < fabs(msd.med)) {
+					msd = contour_sd[i];
+				}
+			}
+
+			if (msdf_median(sr.min_distance.dist, sg.min_distance.dist, sb.min_distance.dist) == msd.med) {
+				msd.r = sr.min_distance.dist;
+				msd.g = sg.min_distance.dist;
+				msd.b = sb.min_distance.dist;
+			}
+
+			size_t index = 3 * ((row * w) + x);
+
+			float mr = ((float)msd.r) * invRange + 0.5f;
+			float mg = ((float)msd.g) * invRange + 0.5f;
+			float mb = ((float)msd.b) * invRange + 0.5f;
+			bitmap[index + 0] = mr;
+			bitmap[index + 1] = mg;
+			bitmap[index + 2] = mb;
+
+		}
+	}
+
+	if (allocCtx.free) {
+		for (int i = 0; i < contour_count; i++) {
+			allocCtx.free(contour_data[i].edges, allocCtx.ctx);
+		}
+		allocCtx.free(contour_data, allocCtx.ctx);
+		allocCtx.free(contour_sd, allocCtx.ctx);
+		allocCtx.free(contours, allocCtx.ctx);
+		allocCtx.free(windings, allocCtx.ctx);
+	}
+	stbtt_FreeShape(font, verts);
+
+	// msdf error correction
+	typedef struct {
+		int x, y;
+	} msdf_Clash;
+	msdf_Clash *clashes = allocCtx.alloc(sizeof(msdf_Clash) * w * h, allocCtx.ctx);
+	size_t cindex = 0;
+
+	float tx = MSDF_EDGE_THRESHOLD / (scale * range);
+	float ty = MSDF_EDGE_THRESHOLD / (scale * range);
+	for (int y = 0; y < h; y++) {
+		for (int x = 0; x < w; x++) {
+			if ((x > 0     && msdf_pixelClash(msdf_pixelAt(x, y, w, bitmap), msdf_pixelAt(msdf_max(x - 1, 0), y, w, bitmap), tx)) ||
+				(x < w - 1 && msdf_pixelClash(msdf_pixelAt(x, y, w, bitmap), msdf_pixelAt(msdf_min(x + 1, w - 1), y, w, bitmap), tx)) ||
+				(y > 0     && msdf_pixelClash(msdf_pixelAt(x, y, w, bitmap), msdf_pixelAt(x, msdf_max(y - 1, 0), w, bitmap), ty)) ||
+				(y < h - 1 && msdf_pixelClash(msdf_pixelAt(x, y, w, bitmap), msdf_pixelAt(x, msdf_min(y + 1, h - 1), w, bitmap), ty)))
+			{
+				clashes[cindex].x = x;
+				clashes[cindex].y = y;
+				cindex += 1;
+			}
+
+		}
+
+		for (size_t i = 0; i < cindex; i++) {
+			size_t index = 3 * ((clashes[i].y * w) + clashes[i].x);
+			float med = msdf_median(bitmap[index], bitmap[index + 1], bitmap[index + 2]);
+			bitmap[index + 0] = med;
+			bitmap[index + 1] = med;
+			bitmap[index + 2] = med;
+		}
+
+		if (allocCtx.free) {
+			allocCtx.free(clashes, allocCtx.ctx);
+		}
+
+		result->glyphIdx = glyphIdx;
+		result->rgb = bitmap;
+		result->width = w;
+		result->height = h;
+		result->yOffset = translateY;
+
+		return 1;
+	}
 }
 #endif // MSDF_H

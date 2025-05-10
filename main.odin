@@ -39,7 +39,7 @@ main :: proc(){
 		panic("Failed to load font")
 	}
 	scale := stbtt.ScaleForPixelHeight(&font, 24)
-	index := stbtt.FindGlyphIndex(&font, 'á')
+	index := stbtt.FindGlyphIndex(&font, 'ǵ')
 
 	res, ok := gen_glyph(&font, index, 2, scale, 0.5)
 
