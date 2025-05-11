@@ -8,16 +8,24 @@ import stbtt "vendor:stb/truetype"
 print_edge :: proc(e: Edge_Segment){
 	switch e.type {
 	case .VLine:
-		fmt.printf("Line: (%.4g %.4g) %v", e.p[0], e.p[1], e.color)
+		fmt.printf("Line: (%.4f %.4f) %v", e.p[0], e.p[1], e.color)
 	case .VCurve:
-		fmt.printf("Quadratic: (%.4g %.4g %.4g) %v", e.p[0], e.p[1], e.p[2], e.color)
+		fmt.printf("Quadratic: (%.4f %.4f %.4f) %v", e.p[0], e.p[1], e.p[2], e.color)
 	case .VCubic:
-		fmt.printf("Cubic: (%.4g %.4g %.4g %.4g) %v", e.p[0], e.p[1], e.p[2], e.p[3], e.color)
+		fmt.printf("Cubic: (%.4f %.4f %.4f %.4f) %v", e.p[0], e.p[1], e.p[2], e.p[3], e.color)
 	case .VMove:
 		fmt.print("Move")
 	case .None:
 		fmt.print("<<<NONE>>>")
 	}
+}
+
+print_multi_distance :: proc(msd: Multi_Distance){
+	fmt.printf("R: %.4f G: %.4f B: %.4f (Med: %.4f)", msd.r, msd.g, msd.b, msd.med);
+}
+
+print_signed_distance :: proc(d: Signed_Distance){
+	fmt.printf("Dist: %.4f Dot: %.4f", d.distance, d.dot);
 }
 
 Font_Info :: stbtt.fontinfo
@@ -61,12 +69,18 @@ gen_glyph :: proc(font: ^Font_Info,
 	bitmap, mem_err := make([]f32, w * h * 3)
 	assert(mem_err == nil, "Allocation failure")
 
-	glyph_origin_x := f32(ix0) * scale
-	glyph_origin_y := f32(iy0) * scale
+	glyph_origin_x := i32(f32(ix0) * scale)
+	glyph_origin_y := i32(f32(iy0) * scale)
 
 	// Calculate offset for centering glyph on bitmap
-	translate_x := (glyph_origin_x - f32(border_width))
-	translate_y := (glyph_origin_y - f32(border_width))
+	translate_x := (glyph_origin_x - border_width)
+	translate_y := (glyph_origin_y - border_width)
+
+	fmt.println("--- Bitmap Metrics ---")
+	fmt.println("Width:", w)
+	fmt.println("Height:", h)
+	fmt.println("Translate X:", translate_x)
+	fmt.println("Translate Y:", translate_y)
 
 	verts : []Vertex
 	/* Load glyph vertices */ {
@@ -117,6 +131,18 @@ gen_glyph :: proc(font: ^Font_Info,
 		}
 	}
 
+	when ODIN_DEBUG {
+		fmt.println("--- Normalized Shape ---")
+		for contour, i in contours {
+			fmt.println("Contour", i)
+			for e in contour.edges {
+				fmt.print("\t")
+				print_edge(e)
+				fmt.println()
+			}
+		}
+	}
+
 	windings := make([dynamic]int, 0, len(contours))
 
 	/* Calculate Windings */ {
@@ -132,14 +158,21 @@ gen_glyph :: proc(font: ^Font_Info,
 	}
 	assert(len(windings) == len(contours), "Mismatched winding to contour")
 
-	Multi_Distance :: struct {
-		r, g, b: f32,
-		med: f32,
+	when ODIN_DEBUG {
+		fmt.println("--- Calculated Windings ---")
+		for contour, i in contours {
+			fmt.println("Contour", i)
+			fmt.printfln("\t%d", windings[i])
+		}
 	}
 
 	/* Calculate Signed Distances */ {
 		contour_dists := make([dynamic]Multi_Distance, 0, len(contours))
 		inv_range := 1.0 / range
+
+		initial_edge_point :: Edge_Point {
+			min_distance = { distance = INF, dot = 1 }
+		}
 
 		for y in 0..<h {
 			row := iy0 > iy1 ? y : h - y - 1
@@ -149,10 +182,11 @@ gen_glyph :: proc(font: ^Font_Info,
 					(f32(translate_x) + f32(x) + xoff) / (scale * a64),
 					(f32(translate_y) + f32(y) + yoff) / (scale * a64),
 				}
-
 				sr, sg, sb : Edge_Point
-				sr.min_distance.distance, sg.min_distance.distance, sb.min_distance.distance = INF, INF, INF
-				sr.min_distance.dot, sg.min_distance.dot, sb.min_distance.dot = 1, 1, 1
+
+				sr = initial_edge_point
+				sg = initial_edge_point
+				sb = initial_edge_point
 
 				d : f32 = abs(INF)
 				neg_dist : f32 = -INF
@@ -162,32 +196,31 @@ gen_glyph :: proc(font: ^Font_Info,
 				// Calculate distance to contours from current point (and if its inside or outside of the shape?)
 				for &contour, contour_index in contours {
 					r, g, b : Edge_Point
-					r.min_distance.distance, g.min_distance.distance, b.min_distance.distance = INF, INF, INF
-					r.min_distance.dot, g.min_distance.dot, b.min_distance.dot = 1, 1, 1
+					dist : Signed_Distance
+					param : f32
+					r = initial_edge_point
+					g = initial_edge_point
+					b = initial_edge_point
 
-					update_r, update_g, update_b : bool
 					for &edge, k in contour.edges {
-						dist, param := distance(edge, p)
+						dist, param = distance(edge, p)
 
 						if bool(edge.color & .Red) && signed_lt(dist, r.min_distance) {
 							r.min_distance = dist
 							r.near_edge = edge
 							r.near_param = param
-							update_r = true
 						}
 
 						if bool(edge.color & .Green) && signed_lt(dist, g.min_distance) {
 							g.min_distance = dist
 							g.near_edge = edge
 							g.near_param = param
-							update_g = true
 						}
 
 						if bool(edge.color & .Blue) && signed_lt(dist, b.min_distance) {
 							b.min_distance = dist
 							b.near_edge = edge
 							b.near_param = param
-							update_b = true
 						}
 					}
 
@@ -234,7 +267,14 @@ gen_glyph :: proc(font: ^Font_Info,
 					if windings[contour_index] < 0 && med_min_dist <= 0 && abs(med_min_dist) < abs(neg_dist) {
 						neg_dist = med_min_dist
 					}
+
+					{
+						fmt.printf("Distance from point (%.4f %.4f) to contour %d: ", p[0], p[1], contour_index);
+						print_multi_distance(contour_dists[contour_index])
+						fmt.println()
+					}
 				}
+
 
 				if near_edge, ok := sr.near_edge.?; ok {
 					sr.min_distance = distance_to_pseudo(sr.min_distance, p, sr.near_param, near_edge)
@@ -315,6 +355,7 @@ shoelace :: proc(a, b: Vec2) -> f32 {
 }
 
 distance :: proc(e: Edge_Segment, origin: Vec2) -> (sd: Signed_Distance, param: f32){
+
 	#partial switch e.type {
 	case .VLine:
 		return distance_linear(e, origin)
@@ -352,6 +393,15 @@ distance_linear :: proc(e: Edge_Segment, origin: Vec2) -> (sd: Signed_Distance, 
 
 	sd.distance = non_zero_sign(lin.cross(aq, ab)) * endpoint_distance
 	sd.dot = abs(lin.inner_product(ab, eq))
+
+	when ODIN_DEBUG {
+		fmt.printf("\tLinear Dist from ")
+		print_edge(e)
+		fmt.print(" to", origin, "is ")
+		print_signed_distance(sd)
+		fmt.println()
+	}
+
 	return
 }
 
@@ -397,17 +447,25 @@ distance_quadratic :: proc(e: Edge_Segment, origin: Vec2) -> (sd: Signed_Distanc
 
 	if param >= 0 && param <= 1 {
 		sd = { min_dist, 0 }
-		return
-	}
-
-	if param < 0.5 {
-		sd = { min_dist, abs(lin.inner_product(lin.normalize(direction(e, 0)), lin.normalize(qa))) }
-		return 
 	}
 	else {
-		sd = { min_dist, abs(lin.inner_product(lin.normalize(direction(e, 1)), lin.normalize(e.p[2] - origin))) }
-		return
+		if param < 0.5 {
+			sd = { min_dist, abs(lin.inner_product(lin.normalize(direction(e, 0)), lin.normalize(qa))) }
+		}
+		else {
+			sd = { min_dist, abs(lin.inner_product(lin.normalize(direction(e, 1)), lin.normalize(e.p[2] - origin))) }
+		}
 	}
+
+	when ODIN_DEBUG {
+		fmt.printf("\tQuad Dist from ")
+		print_edge(e)
+		fmt.print(" to", origin, "is ")
+		print_signed_distance(sd)
+		fmt.println()
+	}
+
+	return
 }
 
 CUBIC_SEARCH_STARTS :: 4
@@ -461,17 +519,25 @@ distance_cubic :: proc(e: Edge_Segment, origin: Vec2) -> (sd: Signed_Distance, p
 
 	if param >= 0 && param <= 1 {
 		sd = { min_dist, 0 }
-		return
-	}
-
-	if param < .5 {
-		sd = { min_dist, abs(lin.inner_product(lin.normalize(direction(e, 0)), lin.normalize(qa))) }
-		return
 	}
 	else {
-		sd = { min_dist, abs(lin.inner_product( lin.normalize(direction(e, 1)), lin.normalize(e.p[3] - origin))) }
-		return
+		if param < .5 {
+			sd = { min_dist, abs(lin.inner_product(lin.normalize(direction(e, 0)), lin.normalize(qa))) }
+		}
+		else {
+			sd = { min_dist, abs(lin.inner_product( lin.normalize(direction(e, 1)), lin.normalize(e.p[3] - origin))) }
+		}
 	}
+
+	when ODIN_DEBUG {
+		fmt.printf("\tCube Dist from ")
+		print_edge(e)
+		fmt.print(" to", origin, "is ")
+		print_signed_distance(sd)
+		fmt.println()
+	}
+
+	return
 }
 
 contour_winding :: proc(contour: Contour) -> int {
@@ -1061,8 +1127,8 @@ color_edges :: proc(contours: []Contour, seed: u64){
 		}
 
 		if len(corners) == 0 { /* No corners, smooth shape */
-			for edge, i in contour.edges {
-				contour.edges[i].color = .White
+			for edge, edge_idx in contour.edges {
+				contour.edges[edge_idx].color = .White
 			}
 		}
 		else if len(corners) == 1 { /* "Teardrop" like shape */
@@ -1119,8 +1185,8 @@ color_edges :: proc(contours: []Contour, seed: u64){
 			switch_color(&color, &seed, .Black)
 			initial_color := color
 
-			for i in 0..<m {
-				index := (start + i) % m
+			for edge_idx in 0..<m {
+				index := (start + edge_idx) % m
 				if spline + 1 < corner_count && corners[spline + 1] == index {
 					spline += 1
 					switch_color(&color, &seed, (spline == corner_count - 1) ? initial_color : .Black)
@@ -1173,5 +1239,10 @@ symmetrical_trichotomy :: proc(pos, n: int) -> int {
 
 non_zero_sign :: proc(n: f32) -> f32 {
 	return 2 * (n > 0 ? 1 : 0) - 1
+}
+
+Multi_Distance :: struct {
+	r, g, b: f32,
+	med: f32,
 }
 

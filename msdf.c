@@ -114,6 +114,11 @@ typedef struct
 	float d;
 } msdf_signedDistance;
 
+
+typedef struct {
+	float r, g, b;
+	float med;
+} msdf_MultiDistance;
 // the possible types:
 // STBTT_vmove  = start of a contour
 // STBTT_vline  = linear segment
@@ -156,20 +161,20 @@ void print_edge(msdf_EdgeSegment* e){
 			printf("Move");
 		break;
 		case STBTT_vline:
-			printf("Line: ([%.4g, %.4g] [%.4g, %.4g]) %s",
+			printf("Line: ([%.4f, %.4f] [%.4f, %.4f]) %s",
 			  e->p[0][0], e->p[0][1],
 			  e->p[1][0], e->p[1][1],
 		  	color_names[e->color]);
 		break;
 		case STBTT_vcurve:
-			printf("Quadratic: ([%.4g, %.4g] [%.4g, %.4g] [%.4g, %.4g]) %s",
+			printf("Quadratic: ([%.4f, %.4f] [%.4f, %.4f] [%.4f, %.4f]) %s",
 			  e->p[0][0], e->p[0][1],
 			  e->p[1][0], e->p[1][1],
 			  e->p[2][0], e->p[2][1],
 		  	color_names[e->color]);
 		break;
 		case STBTT_vcubic:
-			printf("Cubic: ([%.4g, %.4g] [%.4g, %.4g] [%.4g, %.4g] [%.4g, %.4g]) %s",
+			printf("Cubic: ([%.4f, %.4f] [%.4f, %.4f] [%.4f, %.4f] [%.4f, %.4f]) %s",
 			  e->p[0][0], e->p[0][1],
 			  e->p[1][0], e->p[1][1],
 			  e->p[2][0], e->p[2][1],
@@ -177,6 +182,14 @@ void print_edge(msdf_EdgeSegment* e){
 		  	color_names[e->color]);
 		break;
 	}
+}
+
+void print_signed_distance(msdf_signedDistance d){
+	printf("Dist: %.4f Dot: %.4f", d.dist, d.d);
+}
+
+void print_multi_distance(msdf_MultiDistance msd){
+	printf("R: %.4f G: %.4f B: %.4f (Med: %.4f)", msd.r, msd.g, msd.b, msd.med);
 }
 
 static float msdf_median(float a, float b, float c)
@@ -531,7 +544,16 @@ msdf_signedDistance msdf_linearDist(msdf_EdgeSegment *e, msdf_Vec2 origin, float
 	msdf_v2Norm(eq, eq);
 	float dist = msdf_nonZeroSign(msdf_cross(aq, ab)) * endpoint_distance;
 	float d = fabs(msdf_v2MulInner(ab, eq));
-	return (msdf_signedDistance){dist, d};
+
+	msdf_signedDistance result = {dist, d};
+
+	printf("\tLinear Dist from ");
+	print_edge(e);
+	printf(" to [%.4f, %.4f] is ", origin[0], origin[1]);
+	print_signed_distance(result);
+	printf("\n");
+
+	return result;
 }
 
 // quadratic edge signed distance
@@ -590,21 +612,36 @@ msdf_signedDistance msdf_quadraticDist(msdf_EdgeSegment *e, msdf_Vec2 origin, fl
 		}
 	}
 
-	if (*param >= 0 && *param <= 1)
-		return (msdf_signedDistance){min_distance, 0};
 
-	msdf_Vec2 aa = {0}, bb = {0};
-	msdf_v2Norm(ab, ab);
-	msdf_v2Norm(qa, qa);
-	msdf_v2Sub(aa, e->p[2], e->p[1]);
-	msdf_v2Norm(aa, aa);
-	msdf_v2Sub(bb, e->p[2], origin);
-	msdf_v2Norm(bb, bb);
+	msdf_signedDistance result = {0, 0};
 
-	if (*param < .5)
-		return (msdf_signedDistance){min_distance, fabs(msdf_v2MulInner(ab, qa))};
-	else
-		return (msdf_signedDistance){min_distance, fabs(msdf_v2MulInner(aa, bb))};
+	if (*param >= 0 && *param <= 1){
+		result = (msdf_signedDistance){min_distance, 0};
+	}
+	else {
+		msdf_Vec2 aa = {0}, bb = {0};
+		msdf_v2Norm(ab, ab);
+		msdf_v2Norm(qa, qa);
+		msdf_v2Sub(aa, e->p[2], e->p[1]);
+		msdf_v2Norm(aa, aa);
+		msdf_v2Sub(bb, e->p[2], origin);
+		msdf_v2Norm(bb, bb);
+
+		if (*param < .5){
+			result = (msdf_signedDistance){min_distance, fabs(msdf_v2MulInner(ab, qa))};
+		}
+		else {
+			result = (msdf_signedDistance){min_distance, fabs(msdf_v2MulInner(aa, bb))};
+		}
+	}
+
+	printf("\tQuad Dist from ");
+	print_edge(e);
+	printf(" to [%.4f, %.4f] is ", origin[0], origin[1]);
+	print_signed_distance(result);
+	printf("\n");
+
+	return result;
 }
 
 // cubic edge signed distance
@@ -673,23 +710,35 @@ msdf_signedDistance msdf_cubicDist(msdf_EdgeSegment *e, msdf_Vec2 origin, float 
 		}
 	}
 
-	if (*param >= 0 && *param <= 1)
-		return (msdf_signedDistance){min_distance, 0};
+	msdf_signedDistance result = {0};
 
-	msdf_Vec2 d0 = {0}, d1 = {0};
-	msdf_direction(d0, e, 0);
-	msdf_direction(d1, e, 1);
-	msdf_v2Norm(d0, d0);
-	msdf_v2Norm(d1, d1);
-	msdf_v2Norm(qa, qa);
-	msdf_Vec2 a = {0};
-	msdf_v2Sub(a, e->p[3], origin);
-	msdf_v2Norm(a, a);
+	if (*param >= 0 && *param <= 1){
+		result = (msdf_signedDistance){min_distance, 0};
+	}
+	else {
+		msdf_Vec2 d0 = {0}, d1 = {0};
+		msdf_direction(d0, e, 0);
+		msdf_direction(d1, e, 1);
+		msdf_v2Norm(d0, d0);
+		msdf_v2Norm(d1, d1);
+		msdf_v2Norm(qa, qa);
+		msdf_Vec2 a = {0};
+		msdf_v2Sub(a, e->p[3], origin);
+		msdf_v2Norm(a, a);
 
-	if (*param < .5)
-		return (msdf_signedDistance){min_distance, fabs(msdf_v2MulInner(d0, qa))};
-	else
-		return (msdf_signedDistance){min_distance, fabs(msdf_v2MulInner(d1, a))};
+		if (*param < .5)
+			result = (msdf_signedDistance){min_distance, fabs(msdf_v2MulInner(d0, qa))};
+		else
+			result = (msdf_signedDistance){min_distance, fabs(msdf_v2MulInner(d1, a))};
+	}
+
+	printf("\tCube Dist from ");
+	print_edge(e);
+	printf(" to [%.4f, %.4f] is ", origin[0], origin[1]);
+	print_signed_distance(result);
+	printf("\n");
+
+	return result;
 }
 
 void msdf_distToPseudo(msdf_signedDistance *distance, msdf_Vec2 origin, float param, msdf_EdgeSegment *e) {
@@ -892,7 +941,6 @@ float msdf_shoelace(const msdf_Vec2 a, const msdf_Vec2 b)
 	return (b[0] - a[0]) * (a[1] + b[1]);
 }
 
-
 void* msdf__alloc(size_t size, void* ctx) {
 	return malloc(size);
 }
@@ -970,12 +1018,8 @@ int msdf_genGlyph(msdf_Result* result, stbtt_fontinfo *font, int stbttGlyphIndex
 
 	// calculate offset for centering glyph on bitmap
 
-	//glyphOrgX >= 2 ? (glyphOrgX) : ();
 	int32_t translateX = (glyphOrgX - borderWidth); //borderWidth + ((w / 2) - ((ix1 - ix0) * scale) / 2 - leftBearingScaled);
 	int32_t translateY = (glyphOrgY - borderWidth); //borderWidth + ((h / 2) - ((iy1 - iy0) * scale) / 2 - ((float) iy0) * scale);
-	//translateY  = 8;
-	// set the glyph metrics
-	// (pre-scale them)
 
 #if 0
 	if (metrics)
@@ -989,6 +1033,12 @@ int msdf_genGlyph(msdf_Result* result, stbtt_fontinfo *font, int stbttGlyphIndex
 		metrics->glyphIdx = glyphIdx;
 	}
 #endif
+
+	printf("--- Bitmap Metrics ---\n");
+	printf("Width: %d\n", w);
+	printf("Height: %d\n", h);
+	printf("Translate X: %d\n", translateX);
+	printf("Translate Y: %d\n", translateY);
 
 	stbtt_vertex *verts = NULL;
 	int num_verts = stbtt_GetGlyphShape(font, glyphIdx, &verts);
@@ -1227,11 +1277,11 @@ int msdf_genGlyph(msdf_Result* result, stbtt_fontinfo *font, int stbttGlyphIndex
 	}
 
 	printf("--- Colored Edges ---\n");
-	for(int i = 0; i < contour_count; i++){
-		printf("Contour %d\n", i);
-		for(int j = 0; j < contour_data[i].edge_count; j++){
+	for(int contour_index = 0; contour_index < contour_count; contour_index++){
+		printf("Contour %d\n", contour_index);
+		for(int edge_index = 0; edge_index < contour_data[contour_index].edge_count; edge_index++){
 			printf("\t");
-			print_edge(&contour_data[i].edges[j]);
+			print_edge(&contour_data[contour_index].edges[edge_index]);
 			printf("\n");
 		}
 	}
@@ -1249,6 +1299,16 @@ int msdf_genGlyph(msdf_Result* result, stbtt_fontinfo *font, int stbttGlyphIndex
 			for (int j = 0; j < 3; j++) {
 				memcpy(&contour_data[i].edges[j], &parts[j], sizeof(msdf_EdgeSegment));
 			}
+		}
+	}
+
+	printf("--- Normalized Shape ---\n");
+	for(int contour_index = 0; contour_index < contour_count; contour_index++){
+		printf("Contour %d\n", contour_index);
+		for(int edge_index = 0; edge_index < contour_data[contour_index].edge_count; edge_index++){
+			printf("\t");
+			print_edge(&contour_data[contour_index].edges[edge_index]);
+			printf("\n");
 		}
 	}
 
@@ -1295,15 +1355,17 @@ int msdf_genGlyph(msdf_Result* result, stbtt_fontinfo *font, int stbttGlyphIndex
 		windings[i] = ((0 < total) - (total < 0)); // sign
 	}
 
-	typedef struct {
-		float r, g, b;
-		float med;
-	} msdf_MultiDistance;
+	printf("--- Calculated Windings ---\n");
+	for(int winding_index = 0; winding_index < contour_count; winding_index++){
+		printf("Contour %d\n", winding_index);
+		printf("\t%d\n", windings[winding_index]);
+	}
 
 	msdf_MultiDistance *contour_sd = allocCtx.alloc(sizeof(msdf_MultiDistance) * contour_count, allocCtx.ctx);
 
 	float invRange = 1.0f / range;
 
+	// calculate distance field
 	for (int y = 0; y < h; ++y) {
 		int row = iy0 > iy1 ? y : h - y - 1;
 		for (int x = 0; x < w; ++x) {
@@ -1319,21 +1381,22 @@ int msdf_genGlyph(msdf_Result* result, stbtt_fontinfo *font, int stbttGlyphIndex
 			sr.near_param = sg.near_param = sb.near_param = 0;
 			sr.min_distance.dist = sg.min_distance.dist = sb.min_distance.dist = MSDF_INF;
 			sr.min_distance.d = sg.min_distance.d = sb.min_distance.d = 1;
+
 			float d = fabs(MSDF_INF);
 			float neg_dist = -MSDF_INF;
 			float pos_dist = MSDF_INF;
 			int winding = 0;
 
 			// calculate distance to contours from current point (and if its inside or outside of the shape?)
-			for (int j = 0; j < contour_count; ++j) {
+			for (int contour_index = 0; contour_index < contour_count; ++contour_index) {
 				msdf_EdgePoint r = {0}, g = {0}, b = {0};
 				r.near_edge = g.near_edge = b.near_edge = NULL;
 				r.near_param = g.near_param = b.near_param = 0;
 				r.min_distance.dist = g.min_distance.dist = b.min_distance.dist = MSDF_INF;
 				r.min_distance.d = g.min_distance.d = b.min_distance.d = 1;
 
-				for (size_t k = 0; k < contour_data[j].edge_count; ++k) {
-					msdf_EdgeSegment *e = &contour_data[j].edges[k];
+				for (size_t k = 0; k < contour_data[contour_index].edge_count; ++k) {
+					msdf_EdgeSegment *e = &contour_data[contour_index].edges[k];
 					float param = {0};
 					msdf_signedDistance distance = {0};
 					distance.dist = MSDF_INF;
@@ -1386,7 +1449,7 @@ int msdf_genGlyph(msdf_Result* result, stbtt_fontinfo *font, int stbttGlyphIndex
 
 				if (med_min_dist < d) {
 					d = med_min_dist;
-					winding = -windings[j];
+					winding = -windings[contour_index];
 				}
 
 				if (r.near_edge) {
@@ -1400,18 +1463,26 @@ int msdf_genGlyph(msdf_Result* result, stbtt_fontinfo *font, int stbttGlyphIndex
 				}
 
 				med_min_dist = msdf_median(r.min_distance.dist, g.min_distance.dist, b.min_distance.dist);
-				contour_sd[j].r = r.min_distance.dist;
-				contour_sd[j].g = g.min_distance.dist;
-				contour_sd[j].b = b.min_distance.dist;
-				contour_sd[j].med = med_min_dist;
+				contour_sd[contour_index].r = r.min_distance.dist;
+				contour_sd[contour_index].g = g.min_distance.dist;
+				contour_sd[contour_index].b = b.min_distance.dist;
+				contour_sd[contour_index].med = med_min_dist;
 
-				if (windings[j] > 0 && med_min_dist >= 0 && fabs(med_min_dist) < fabs(pos_dist)) {
+				if (windings[contour_index] > 0 && med_min_dist >= 0 && fabs(med_min_dist) < fabs(pos_dist)) {
 					pos_dist = med_min_dist;
 				}
-				if (windings[j] < 0 && med_min_dist <= 0 && fabs(med_min_dist) < fabs(neg_dist)) {
+				if (windings[contour_index] < 0 && med_min_dist <= 0 && fabs(med_min_dist) < fabs(neg_dist)) {
 					neg_dist = med_min_dist;
 				}
+
+				{
+					printf("Distance from point (%.4f %.4f) to contour %d: ", p[0], p[1], contour_index);
+					print_multi_distance(contour_sd[contour_index]);
+					printf("\n");
+				}
+
 			}
+
 
 			if (sr.near_edge) {
 				msdf_distToPseudo(&sr.min_distance, p, sr.near_param, sr.near_edge);
