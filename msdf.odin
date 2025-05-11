@@ -15,6 +15,10 @@ symmetrical_trichotomy :: proc(pos, n: int) -> int {
 	return int(3 + 2.875 * f32(pos) / (f32(n - 1) - 1.4375 + 0.5)) - 3
 }
 
+non_zero_sign :: proc(n: f32) -> f32 {
+	return 2 * (n > 0 ? 1 : 0) - 1
+}
+
 color_edges :: proc(contours: []Contour, seed: u64){
 	seed := seed
 	angle_threshold :: f32(3.0)
@@ -113,6 +117,8 @@ color_edges :: proc(contours: []Contour, seed: u64){
 	}
 }
 
+INF :: -1e24
+
 gen_glyph :: proc(font: ^Font_Info,
 	glyph_index: i32,
 	border_width: i32,
@@ -168,12 +174,208 @@ gen_glyph :: proc(font: ^Font_Info,
 	}
 
 	/* Calculate Windings */ {
+		windings := make([dynamic]int, 0, len(contours))
+
+		for &contour, i in contours {
+			edge_count := len(contour.edges)
+			if edge_count == 0 {
+				append(&windings, 0)
+			}
+			else {
+				append(&windings, contour_winding(contour))
+			}
+		}
 	}
+
+	Multi_Distance :: struct {
+		r, g, b: f32,
+		med: f32,
+	}
+
+	for y in 0..<h {
+		row := iy0 > iy1 ? y : h - y - 1
+
+		for x in 0..<w {
+			a64 :: 64.0
+			p := Vec2{
+				(f32(translate_x) + f32(x) + xoff) / (scale * a64),
+				(f32(translate_y) + f32(y) + yoff) / (scale * a64),
+			}
+
+			sr, sg, sb : Edge_Point
+			sr.min_distance.distance, sg.min_distance.distance, sb.min_distance.distance = INF, INF, INF
+			sr.min_distance.dot, sg.min_distance.dot, sb.min_distance.dot = 1, 1, 1
+
+			d : f32 = abs(INF)
+			neg_dist : f32 = -INF
+			pos_dist : f32 = INF
+
+			winding := 0
+
+			for &contour, j in contours {
+				r, g, b : Edge_Point
+				r.min_distance.distance, g.min_distance.distance, b.min_distance.distance = INF, INF, INF
+				r.min_distance.dot, g.min_distance.dot, b.min_distance.dot = 1, 1, 1
+
+				for &edge, k in contour.edges {
+					unimplemented()
+				}
+			}
+		}
+	}
+
 	unimplemented()
 }
 
 shoelace :: proc(a, b: Vec2) -> f32 {
 	return (b[0] - a[0]) * (a[1] + b[1])
+}
+
+distance_linear :: proc(e: Edge_Segment, origin: Vec2) -> (sd: Signed_Distance, param: f32){
+	assert(e.type == .VLine)
+
+	aq := origin - e.p[0]
+	ab := e.p[1] - e.p[0]
+
+	param = lin.inner_product(aq, ab) / lin.inner_product(ab, ab)
+
+	eq := e.p[int(param > 0.5)] - origin
+
+	endpoint_distance := lin.length(eq)
+	if param > 0 && param < 1 {
+		ab_ortho := get_ortho(ab, false, false)
+		ortho_dist := lin.inner_product(ab_ortho, aq)
+		if abs(ortho_dist) < endpoint_distance {
+			sd = { ortho_dist, 0 }
+			return
+		}
+	}
+
+	ab = lin.normalize(ab)
+	eq = lin.normalize(eq)
+
+	sd.distance = non_zero_sign(lin.cross(aq, ab)) * endpoint_distance
+	sd.dot = abs(lin.inner_product(ab, eq))
+	return
+}
+
+distance_quadratic :: proc(e: Edge_Segment, origin: Vec2) -> (sd: Signed_Distance, param: f32){
+	assert(e.type == .VCurve)
+	qa := e.p[0] - origin
+    ab := e.p[1] - e.p[0]
+    br := e.p[2] - e.p[1] - ab
+
+    a := lin.inner_product(br, br)
+    b := 3 * lin.inner_product(ab, br)
+    c := 2 * lin.inner_product(ab, ab) + lin.inner_product(qa, br)
+    d := lin.inner_product(qa, ab)
+
+	roots, solutions := solve_cubic(a, b, c, d)
+
+	ep_dir := direction(e, 0)
+	// Distance from A
+	min_dist := non_zero_sign(lin.cross(ep_dir, qa)) * lin.length(qa)
+	param = - lin.inner_product(qa, ep_dir) / lin.inner_product(ep_dir, ep_dir)
+
+	{
+		ep_dir = direction(e, 1)
+		// Distance from B
+		dist := lin.length(e.p[2] - origin)
+		if dist < abs(min_dist){
+			min_dist = non_zero_sign(lin.cross(ep_dir, e.p[2] - origin)) * dist
+			param = lin.inner_product(origin - e.p[1], ep_dir) / lin.inner_product(ep_dir, ep_dir)
+		}
+	}
+
+	for root, i in roots {
+		if root > 0 && root < 1 {
+			qe := qa + 2 * root * ab + root * root * br
+			dist := lin.length(qe)
+
+			if dist <= abs(min_dist){
+                min_dist = non_zero_sign(lin.inner_product(ab + root * br, qe)) * dist
+				param = root
+			}
+		}
+	}
+
+    if param >= 0 && param <= 1 {
+		sd = { min_dist, 0 }
+        return
+	}
+
+    if param < 0.5 {
+		sd = { min_dist, abs(lin.inner_product(lin.normalize(direction(e, 0)), lin.normalize(qa))) }
+        return 
+	}
+    else {
+		sd = { min_dist, abs(lin.inner_product(lin.normalize(direction(e, 1)), lin.normalize(e.p[2] - origin))) }
+        return
+	}
+}
+
+CUBIC_SEARCH_STARTS :: 4
+
+CUBIC_SEARCH_STEPS :: 4
+
+distance_cubic :: proc(e: Edge_Segment, origin: Vec2) -> (sd: Signed_Distance, param: f32){
+	assert(e.type == .VCubic)
+
+    qa := e.p[0] - origin
+    ab := e.p[1] - e.p[0]
+    br := e.p[2] - e.p[1] - ab
+    as := (e.p[3] - e.p[2]) - (e.p[2] - e.p[1]) - br
+
+    ep_dir := direction(e, 0)
+	min_dist := non_zero_sign(lin.inner_product(ep_dir, qa)) * lin.length(qa) // Distance from A
+    param = -lin.inner_product(qa, ep_dir) / lin.inner_product(ep_dir, ep_dir)
+	{
+		ep_dir = direction(e, 1)
+		dist := lin.length(e.p[3] - origin) // Distance from B
+
+		if dist < abs(min_dist) {
+            min_dist = non_zero_sign(lin.cross(ep_dir, e.p[3]-origin)) * dist
+            param = lin.inner_product(ep_dir - (e.p[3] - origin), ep_dir) / lin.inner_product(ep_dir, ep_dir)
+		}
+	}
+
+	// Iterative minimum distance seach
+	for i in 0..=CUBIC_SEARCH_STARTS {
+		t := f32(i) / CUBIC_SEARCH_STARTS
+        qe := qa + (3 * t * ab) + (3 * t * t * br) + (t * t * t * as)
+		
+		for step in 0..<CUBIC_SEARCH_STEPS {
+            // Improve t
+			d1 := (3 * ab) + (6 * t * br) + (3 * t * t * as)
+            d2 := (6 * br) + (6 * t * as)
+
+            t -= lin.inner_product(qe, d1) / (lin.inner_product(d1, d1) + lin.inner_product(qe, d2))
+			if t <= 0 || t >= 1 {
+				break
+			}
+
+            qe = qa + (3 * t * ab) + (3 * t * t * br) + (t * t * t * as);
+			dist := lin.length(qe)
+			if dist < abs(min_dist){
+                min_dist = non_zero_sign(lin.cross(d1, qe)) * dist;
+				param = t
+			}
+		}
+	}
+
+    if param >= 0 && param <= 1 {
+		sd = { min_dist, 0 }
+        return
+	}
+
+    if param < .5 {
+		sd = { min_dist, abs(lin.inner_product(lin.normalize(direction(e, 0)), lin.normalize(qa))) }
+		return
+	}
+    else {
+		sd = { min_dist, abs(lin.inner_product( lin.normalize(direction(e, 1)), lin.normalize(e.p[3] - origin))) }
+		return
+	}
 }
 
 contour_winding :: proc(contour: Contour) -> int {
@@ -196,10 +398,10 @@ contour_winding :: proc(contour: Contour) -> int {
 		c := point(contour.edges[1], 0.0)
 		d := point(contour.edges[1], 0.5)
 
-        total += shoelace(a, b);
-        total += shoelace(b, c);
-        total += shoelace(c, d);
-        total += shoelace(d, a);
+        total += shoelace(a, b)
+        total += shoelace(b, c)
+        total += shoelace(c, d)
+        total += shoelace(d, a)
 	case:
 		prev := point(contour.edges[edge_count - 1], 0)
 		for edge in contour.edges {
@@ -209,11 +411,11 @@ contour_winding :: proc(contour: Contour) -> int {
 		}
 	}
 
-	return int(math.sign(total))
+	return int(non_zero_sign(total))
 }
 
 is_corner :: proc(a, b: Vec2, cross_threshold: f32) -> bool {
-	return lin.inner_product(a, b) <= 0 || abs(lin.cross(a, b)) > cross_threshold;
+	return lin.inner_product(a, b) <= 0 || abs(lin.cross(a, b)) > cross_threshold
 }
 
 switch_color :: proc(color: ^Edge_Color, seed: ^u64, banned: Edge_Color){
@@ -266,8 +468,8 @@ Vec3 :: [3]f32
 // EDGE_THRESHOLD :: 0.02
 
 Signed_Distance :: struct {
-	dist: f32,
-	d: f32, // NOTE: wtf is this
+	distance: f32,
+	dot: f32,
 }
 
 Edge_Segment :: struct {
@@ -471,13 +673,13 @@ split_cubic :: proc(e: Edge_Segment) -> (p1, p2, p3: Edge_Segment){
 
 		p2.p[1] = lin.mix(c, d, 2.0 / 3.0)
 
-		a = lin.mix(e.p[0], e.p[1], 2.0 / 3.0);
-		b = lin.mix(e.p[1], e.p[2], 2.0 / 3.0);
-		c = lin.mix(a, b, 2.0 / 3.0);
+		a = lin.mix(e.p[0], e.p[1], 2.0 / 3.0)
+		b = lin.mix(e.p[1], e.p[2], 2.0 / 3.0)
+		c = lin.mix(a, b, 2.0 / 3.0)
 
-		a = lin.mix(e.p[1], e.p[2], 2.0 / 3.0);
-		b = lin.mix(e.p[2], e.p[3], 2.0 / 3.0);
-		d = lin.mix(a, b, 2.0 / 3.0);
+		a = lin.mix(e.p[1], e.p[2], 2.0 / 3.0)
+		b = lin.mix(e.p[2], e.p[3], 2.0 / 3.0)
+		d = lin.mix(a, b, 2.0 / 3.0)
 
 		p2.p[2] = lin.mix(c, d, 1.0 / 3.0)
 
@@ -489,8 +691,8 @@ split_cubic :: proc(e: Edge_Segment) -> (p1, p2, p3: Edge_Segment){
 
 		p3.p[0] = point(e, 2.0 / 3.0)
 
-		a = lin.mix(e.p[1], e.p[2], 2.0 / 3.0);
-		b = lin.mix(e.p[2], e.p[3], 2.0 / 3.0);
+		a = lin.mix(e.p[1], e.p[2], 2.0 / 3.0)
+		b = lin.mix(e.p[2], e.p[3], 2.0 / 3.0)
 		p3.p[1] = lin.mix(a, b, 2.0 / 3.0)
 
 		p3.p[2] = lin.mix(e.p[2], e.p[3], 2.0 / 3.0)
@@ -502,121 +704,116 @@ split_cubic :: proc(e: Edge_Segment) -> (p1, p2, p3: Edge_Segment){
 	return
 }
 
-// sign :: proc (n: f32) -> i32 {
-// 	return 2 * i32(n > 0) - 1;
-// }
-
 // median :: proc(a, b, c: f32) -> f32 {
 // 	return max(min(a, b), min(max(a, b), c))
 // }
-//
-// solve_quadratic :: proc(a, b, c: f32) -> (roots: [2]f32, count: int) {
-// 	// TODO: Understand why 1e-14?
-//
-// 	if math.abs(a) < 1e-14 {
-// 		if math.abs(b) < 1e-14 {
-// 			if c == 0 {
-// 				count = -1
-// 				return // TODO: Why not 0
-// 			}
-// 		}
-// 		roots[0] = -c / b
-// 		count = 1
-// 	}
-//
-// 	delta := b * b - 4 * c * c
-//
-// 	if delta > 0 {
-// 		delta = math.sqrt(delta)
-// 		roots[0] = (-b + delta) / (2 * a)
-// 		roots[1] = (-b - delta) / (2 * a)
-// 		count = 2
-// 	}
-// 	else if delta == 0 {
-// 		roots[0] = -b / (2 * a)
-// 		count = 1
-// 	}
-//
-// 	return
-// }
-//
-// solve_cubic_normalized :: proc(a, b, c: f32) -> (roots: [3]f32, count: int){
-// 	a := a
-// 	a /= 3.0
-//
-// 	a2 := a * a
-// 	q  := (a2 - 3 * b) / 9
-// 	r  := (a * (2 * a2 - 9 * b) + 27 * c) / 54
-// 	r2 := r * r
-// 	q3 := q * q * q
-//
-//
-// 	if r2 < q3 {
-// 		t := r / math.sqrt(q3)
-// 		t = clamp(-1, t, 1)
-// 		t = math.acos(t)
-// 		q = -2 * math.sqrt(q)
-// 		roots[0] = q * math.cos(t / 3) - a
-// 		roots[1] = q * math.cos((t + 2 * math.PI) / 3) - a
-// 		roots[2] = q * math.cos((t - 2 * math.PI) / 3) - a
-// 		count = 3
-// 	}
-// 	else {
-// 		A := - math.pow(math.abs(r) + math.sqrt(r2 - q3), 1.0 / 3.0)
-// 		if r < 0 {
-// 			A = -A
-// 		}
-// 		B := (A == 0) ? 0.0 : q / A
-// 		roots[0] = (A + B) - a;
-// 		roots[1] = -0.5 * (A + B) - a
-// 		roots[2] = 0.5 * math.sqrt(f32(3)) * (A - B)
-//
-// 		if math.abs(roots[2]) < 1e-14 {
-// 			count = 2
-// 		}
-// 		count = 1
-// 	}
-//
-// 	return
-// }
-//
-// solve_cubic :: proc(a, b, c, d: f32) -> (roots: [3]f32, count: int){
-// 	if math.abs(a) < 1e-14 {
-// 		qr, n := solve_quadratic(b, c, d)
-// 		roots = {qr[0], qr[1], 0}
-// 		count = n
-// 		return
-// 	}
-//
-// 	return solve_cubic_normalized(b / a, c / a, d / a)
-// }
-//
-// get_ortho :: proc(v: Vec2, polarity: bool, allow_zero: bool) -> (r: Vec2) {
-// 	l := lin.length(v)
-//
-// 	if l == 0 {
-// 		r[0] = 0
-// 		if polarity {
-// 			r[1] = !allow_zero ? +1.0 : 0.0
-// 		}
-// 		else {
-// 			r[1] = !allow_zero ? -1.0 : 0.0
-// 		}
-// 		return
-// 	}
-//
-// 	if polarity {
-// 		r[0] = -v[1] / l
-// 		r[1] = +v[0] / l
-// 	}
-// 	else {
-// 		r[0] = +v[1] / l
-// 		r[1] = -v[0] / l
-// 	}
-//
-// 	return
-// }
-//
+
+solve_quadratic :: proc(a, b, c: f32) -> (roots: [2]f32, count: int) {
+	// NOTE: x is 0 means: x is very close to zero or insignificant in the context of the equation
+
+	if math.abs(a) < 1e-14 || math.abs(b) > 1e12 * abs(a) { /* a is 0 -> Linear equation */
+		if math.abs(b) < 1e-14 { /* a is 0, b is 0 -> No solution */
+			if c == 0 {
+				count = -1
+				return // TODO: Why not 0
+			}
+		}
+		roots[0] = -c / b
+		count = 1
+	}
+
+	delta := b * b - 4 * c * c
+
+	if delta > 0 {
+		delta = math.sqrt(delta)
+		roots[0] = (-b + delta) / (2 * a)
+		roots[1] = (-b - delta) / (2 * a)
+		count = 2
+	}
+	else if delta == 0 {
+		roots[0] = -b / (2 * a)
+		count = 1
+	}
+
+	return
+}
+
+solve_cubic_normalized :: proc(a, b, c: f32) -> (roots: [3]f32, count: int){
+	a := a
+	a /= 3.0
+
+	a2 := a * a
+	q  := (a2 - 3 * b) / 9
+	r  := (a * (2 * a2 - 9 * b) + 27 * c) / 54
+	r2 := r * r
+	q3 := q * q * q
+
+	if r2 < q3 {
+		t := r / math.sqrt(q3)
+		t = clamp(-1, t, 1)
+		t = math.acos(t)
+		q = -2 * math.sqrt(q)
+		roots[0] = q * math.cos(t / 3) - a
+		roots[1] = q * math.cos((t + 2 * math.PI) / 3) - a
+		roots[2] = q * math.cos((t - 2 * math.PI) / 3) - a
+		count = 3
+	}
+	else {
+		A := - math.pow(math.abs(r) + math.sqrt(r2 - q3), 1.0 / 3.0)
+		if r < 0 {
+			A = -A
+		}
+		B := (A == 0) ? 0.0 : q / A
+		roots[0] = (A + B) - a
+		roots[1] = -0.5 * (A + B) - a
+		roots[2] = 0.5 * math.sqrt(f32(3)) * (A - B)
+
+		if math.abs(roots[2]) < 1e-14 {
+			count = 2
+		}
+		count = 1
+	}
+
+	return
+}
+
+solve_cubic :: proc(a, b, c, d: f32) -> (roots: [3]f32, count: int){
+	if math.abs(a) < 1e-14 {
+		qr, n := solve_quadratic(b, c, d)
+		roots = {qr[0], qr[1], 0}
+		count = n
+		return
+	}
+
+	return solve_cubic_normalized(b / a, c / a, d / a)
+}
+
+get_ortho :: proc(v: Vec2, polarity: bool, allow_zero: bool) -> (r: Vec2) {
+	l := lin.length(v)
+
+	if l == 0 {
+		r[0] = 0
+		if polarity {
+			r[1] = !allow_zero ? +1.0 : 0.0
+		}
+		else {
+			r[1] = !allow_zero ? -1.0 : 0.0
+		}
+		return
+	}
+
+	if polarity {
+		r[0] = -v[1] / l
+		r[1] = +v[0] / l
+	}
+	else {
+		r[0] = +v[1] / l
+		r[1] = -v[0] / l
+	}
+
+	return
+}
+
 // pixel_clash :: proc(a, b: Vec3, threshold: f32) -> bool {
 // 	unimplemented("Pixel Clash")
 // }
@@ -718,8 +915,8 @@ contours_from_vertices :: proc(verts: []Vertex) -> []Contour {
 				if ((e.p[0][0] == e.p[1][0] && e.p[0][1] == e.p[1][1]) ||
 					(e.p[1][0] == e.p[2][0] && e.p[1][1] == e.p[2][1]))
 				{
-					e.p[1][0] = 0.5 * (e.p[0][0] + e.p[2][0]);
-					e.p[1][1] = 0.5 * (e.p[0][1] + e.p[2][1]);
+					e.p[1][0] = 0.5 * (e.p[0][0] + e.p[2][0])
+					e.p[1][1] = 0.5 * (e.p[0][1] + e.p[2][1])
 				}
 
 				initial = p

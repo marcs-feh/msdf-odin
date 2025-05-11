@@ -1248,7 +1248,10 @@ int msdf_genGlyph(msdf_Result* result, stbtt_fontinfo *font, int stbttGlyphIndex
 		int row = iy0 > iy1 ? y : h - y - 1;
 		for (int x = 0; x < w; ++x) {
 			float a64 = 64;
-			msdf_Vec2 p = {((float)translateX + (float)x + xoff) / (scale * a64), ((float)translateY + (float)y + yoff) / (scale * a64)};
+			msdf_Vec2 p = {
+				((float)translateX + (float)x + xoff) / (scale * a64),
+				((float)translateY + (float)y + yoff) / (scale * a64)
+			};
 			//p[0] = ;
 			//p[1] = ;
 			msdf_EdgePoint sr = {0}, sg = {0}, sb = {0};
