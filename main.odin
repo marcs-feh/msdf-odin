@@ -11,11 +11,11 @@ import stbtt "vendor:stb/truetype"
 FONT :: #load("jetbrains.ttf", []byte)
 
 median :: proc(r, g, b: f32) -> f32 {
-    return max(min(r, g), min(max(r, g), b));
+    return max(min(r, g), min(max(r, g), b))
 }
 
 sigmoid :: proc(x, s: f32) -> f32{
-	return 1.0 / (1 + math.exp(-s * (x - 0.5)));
+	return 1.0 / (1 + math.exp(-s * (x - 0.5)))
 }
 
 // load_ascii :: proc(font: ^stbtt.fontinfo, pixel_height: int) -> map[rune]Field {

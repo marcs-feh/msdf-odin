@@ -5,128 +5,47 @@ import "core:fmt"
 import lin "core:math/linalg"
 import stbtt "vendor:stb/truetype"
 
-Font_Info :: stbtt.fontinfo
-
-// For each position < n, this function will return -1, 0, or 1, depending on
-// whether the position is closer to the beginning, middle, or end,
-// respectively. It is guaranteed that the output will be balanced in that the
-// total for positions 0 through n-1 will be zero.
-symmetrical_trichotomy :: proc(pos, n: int) -> int {
-	return int(3 + 2.875 * f32(pos) / (f32(n - 1) - 1.4375 + 0.5)) - 3
-}
-
-non_zero_sign :: proc(n: f32) -> f32 {
-	return 2 * (n > 0 ? 1 : 0) - 1
-}
-
-color_edges :: proc(contours: []Contour, seed: u64){
-	seed := seed
-	angle_threshold :: f32(3.0)
-	cross_threshold := f32(math.sin(angle_threshold))
-	corners := make([dynamic]int, 0, len(contours))
-
-	for &contour, i in contours {
-		if len(contour.edges) == 0 { continue }
-
-		/* Identify corners */ {
-			clear(&corners)
-			dir, prev_dir : Vec2
-
-			prev_dir = direction(contour.edges[len(contour.edges) - 1], 1.0)
-			for edge, index in contour.edges {
-				dir = direction(edge, 0)
-
-				dir = lin.normalize(dir)
-				prev_dir = lin.normalize(prev_dir)
-
-				if is_corner(prev_dir, dir, cross_threshold) {
-					append(&corners, index)
-				}
-				prev_dir = direction(edge, 1)
-			}
-		}
-
-		if len(corners) == 0 { /* No corners, smooth shape */
-			for edge, i in contour.edges {
-				contour.edges[i].color = .White
-			}
-		}
-		else if len(corners) == 1 { /* "Teardrop" like shape */
-			colors := [3]Edge_Color{.White, .White, .Black}
-			switch_color(&colors[0], &seed, .Black)
-			colors[2] = colors[0]
-			switch_color(&colors[2], &seed, .Black)
-
-			corner := corners[0]
-			if len(contour.edges) >= 3 { /* Enough edges to "spread" colors */
-				m := len(contour.edges)
-				for j in 0..<m {
-					// NOTE: I have zero fucking idea why this works, the original code is even more arcane
-					// contour_data[i].edges[(corner + j) % m].color = (colors + 1)[(int)(3 + 2.875 * i / (m - 1) - 1.4375 + .5) - 3];
-					contour.edges[(corner + j) % m].color = colors[1 + symmetrical_trichotomy(i, m)]
-				}
-			}
-			else if len(contour.edges) >= 1 { /* Less than three edge segments for three colors -> edges must be split */
-				parts := [7]Edge_Segment{}
-				c_off := 3 * corner
-
-				parts[0 + c_off], parts[1 + c_off], parts[2 + c_off] = split(contour.edges[0])
-
-				if len(contour.edges) >= 2 {
-					parts[3 - c_off], parts[4 - c_off], parts[5 - c_off] = split(contour.edges[1])
-
-					parts[0].color = colors[0]
-					parts[1].color = colors[0]
-
-					parts[2].color = colors[1]
-					parts[3].color = colors[1]
-
-					parts[4].color = colors[2]
-					parts[5].color = colors[2]
-				}
-				else {
-					parts[0].color = colors[0]
-					parts[1].color = colors[1]
-					parts[2].color = colors[2]
-				}
-
-				delete(contour.edges)
-				contour.edges = make([dynamic]Edge_Segment, 0, 7)
-				append(&contour.edges, ..parts[:])
-			}
-		}
-		else { /* Multiple corners */
-			spline := 0
-			start := corners[0]
-			corner_count := len(corners)
-			m := len(contour.edges)
-
-			color := Edge_Color.White
-			switch_color(&color, &seed, .Black)
-			initial_color := color
-
-			for i in 0..<m {
-				index := (start + i) % m
-				if spline + 1 < corner_count && corners[spline + 1] == index {
-					spline += 1
-					switch_color(&color, &seed, (spline == corner_count - 1) ? initial_color : .Black)
-				}
-				contour.edges[index].color = color
-			}
-		}
+print_edge :: proc(e: Edge_Segment){
+	switch e.type {
+	case .VLine:
+		fmt.printf("Line: (%.4g %.4g) %v", e.p[0], e.p[1], e.color)
+	case .VCurve:
+		fmt.printf("Quadratic: (%.4g %.4g %.4g) %v", e.p[0], e.p[1], e.p[2], e.color)
+	case .VCubic:
+		fmt.printf("Cubic: (%.4g %.4g %.4g %.4g) %v", e.p[0], e.p[1], e.p[2], e.p[3], e.color)
+	case .VMove:
+		fmt.print("Move")
+	case .None:
+		fmt.print("<<<NONE>>>")
 	}
 }
 
-INF :: -1e24
+Font_Info :: stbtt.fontinfo
+
+Result :: struct {
+	glyph_index: i32,
+	left_bearing: i32,
+	y_offset: i32,
+	advance: i32,
+	values: [][3]f32,
+	width: i32,
+	height: i32,
+}
+
+Vertex :: stbtt.vertex
+
+Vec2 :: [2]f32
+
+Vec3 :: [3]f32
 
 gen_glyph :: proc(font: ^Font_Info,
 	glyph_index: i32,
 	border_width: i32,
 	scale: f32,
 	range: f32,
-) -> (result: Result, ok: bool)
+) -> (result: Result)
 {
-    // Get glyph bounding box (scaled later)
+	// Get glyph bounding box (scaled later)
 	ix0, iy0, ix1, iy1 : i32
 	xoff, yoff : f32
 	stbtt.GetGlyphBox(font, glyph_index, &ix0, &iy0, &ix1, &iy1)
@@ -139,13 +58,13 @@ gen_glyph :: proc(font: ^Font_Info,
 		h = i32(scaled_height)
 	}
 
-	// bitmap, mem_err := make([]f32, w * h * 3)
-	// assert(mem_err == nil, "Allocation failure")
+	bitmap, mem_err := make([]f32, w * h * 3)
+	assert(mem_err == nil, "Allocation failure")
 
 	glyph_origin_x := f32(ix0) * scale
 	glyph_origin_y := f32(iy0) * scale
 
-    // Calculate offset for centering glyph on bitmap
+	// Calculate offset for centering glyph on bitmap
 	translate_x := (glyph_origin_x - f32(border_width))
 	translate_y := (glyph_origin_y - f32(border_width))
 
@@ -158,10 +77,35 @@ gen_glyph :: proc(font: ^Font_Info,
 
 	contours := contours_from_vertices(verts)
 	if len(contours) == 0 {
-		return {}, false
+		return {}
 	}
 
+	when ODIN_DEBUG {
+		fmt.println("--- Loaded Contours ---")
+		for contour, i in contours {
+			fmt.println("Contour", i)
+			for e in contour.edges {
+				fmt.print("\t")
+				print_edge(e)
+				fmt.println()
+			}
+		}
+	}
+
+	/* Color edges */
 	color_edges(contours[:], 0)
+
+	when ODIN_DEBUG {
+		fmt.println("--- Colored Edges ---")
+		for contour, i in contours {
+			fmt.println("Contour", i)
+			for e in contour.edges {
+				fmt.print("\t")
+				print_edge(e)
+				fmt.println()
+			}
+		}
+	}
 
 	/* Normalize shape */ {
 		for &contour, i in contours {
@@ -173,9 +117,9 @@ gen_glyph :: proc(font: ^Font_Info,
 		}
 	}
 
-	/* Calculate Windings */ {
-		windings := make([dynamic]int, 0, len(contours))
+	windings := make([dynamic]int, 0, len(contours))
 
+	/* Calculate Windings */ {
 		for &contour, i in contours {
 			edge_count := len(contour.edges)
 			if edge_count == 0 {
@@ -186,49 +130,201 @@ gen_glyph :: proc(font: ^Font_Info,
 			}
 		}
 	}
+	assert(len(windings) == len(contours), "Mismatched winding to contour")
 
 	Multi_Distance :: struct {
 		r, g, b: f32,
 		med: f32,
 	}
 
-	for y in 0..<h {
-		row := iy0 > iy1 ? y : h - y - 1
+	/* Calculate Signed Distances */ {
+		contour_dists := make([dynamic]Multi_Distance, 0, len(contours))
+		inv_range := 1.0 / range
 
-		for x in 0..<w {
-			a64 :: 64.0
-			p := Vec2{
-				(f32(translate_x) + f32(x) + xoff) / (scale * a64),
-				(f32(translate_y) + f32(y) + yoff) / (scale * a64),
-			}
-
-			sr, sg, sb : Edge_Point
-			sr.min_distance.distance, sg.min_distance.distance, sb.min_distance.distance = INF, INF, INF
-			sr.min_distance.dot, sg.min_distance.dot, sb.min_distance.dot = 1, 1, 1
-
-			d : f32 = abs(INF)
-			neg_dist : f32 = -INF
-			pos_dist : f32 = INF
-
-			winding := 0
-
-			for &contour, j in contours {
-				r, g, b : Edge_Point
-				r.min_distance.distance, g.min_distance.distance, b.min_distance.distance = INF, INF, INF
-				r.min_distance.dot, g.min_distance.dot, b.min_distance.dot = 1, 1, 1
-
-				for &edge, k in contour.edges {
-					unimplemented()
+		for y in 0..<h {
+			row := iy0 > iy1 ? y : h - y - 1
+			for x in 0..<w {
+				a64 :: 64.0
+				p := Vec2{
+					(f32(translate_x) + f32(x) + xoff) / (scale * a64),
+					(f32(translate_y) + f32(y) + yoff) / (scale * a64),
 				}
+
+				sr, sg, sb : Edge_Point
+				sr.min_distance.distance, sg.min_distance.distance, sb.min_distance.distance = INF, INF, INF
+				sr.min_distance.dot, sg.min_distance.dot, sb.min_distance.dot = 1, 1, 1
+
+				d : f32 = abs(INF)
+				neg_dist : f32 = -INF
+				pos_dist : f32 = INF
+
+				winding := 0
+				// Calculate distance to contours from current point (and if its inside or outside of the shape?)
+				for &contour, contour_index in contours {
+					r, g, b : Edge_Point
+					r.min_distance.distance, g.min_distance.distance, b.min_distance.distance = INF, INF, INF
+					r.min_distance.dot, g.min_distance.dot, b.min_distance.dot = 1, 1, 1
+
+					update_r, update_g, update_b : bool
+					for &edge, k in contour.edges {
+						dist, param := distance(edge, p)
+
+						if bool(edge.color & .Red) && signed_lt(dist, r.min_distance) {
+							r.min_distance = dist
+							r.near_edge = edge
+							r.near_param = param
+							update_r = true
+						}
+
+						if bool(edge.color & .Green) && signed_lt(dist, g.min_distance) {
+							g.min_distance = dist
+							g.near_edge = edge
+							g.near_param = param
+							update_g = true
+						}
+
+						if bool(edge.color & .Blue) && signed_lt(dist, b.min_distance) {
+							b.min_distance = dist
+							b.near_edge = edge
+							b.near_param = param
+							update_b = true
+						}
+					}
+
+					if signed_lt(r.min_distance, sr.min_distance){
+						sr = r
+					}
+					if signed_lt(g.min_distance, sg.min_distance){
+						sg = g
+					}
+					if signed_lt(b.min_distance, sb.min_distance){
+						sb = b
+					}
+
+					abs_med_min_dist := abs(median(r.min_distance.distance, g.min_distance.distance, b.min_distance.distance))
+
+					if abs_med_min_dist < d {
+						d = abs_med_min_dist
+						winding = -windings[contour_index]
+					}
+
+					if near_edge, ok := r.near_edge.?; ok {
+						r.min_distance = distance_to_pseudo(r.min_distance, p, r.near_param, near_edge)
+					}
+					if near_edge, ok := g.near_edge.?; ok {
+						g.min_distance = distance_to_pseudo(g.min_distance, p, g.near_param, near_edge)
+					}
+					if near_edge, ok := b.near_edge.?; ok {
+						b.min_distance = distance_to_pseudo(b.min_distance, p, b.near_param, near_edge)
+					}
+
+					// NOTE: Calculate this *after* pseudo_dist transformation
+					med_min_dist := median(r.min_distance.distance, g.min_distance.distance, b.min_distance.distance)
+					append(&contour_dists, Multi_Distance {
+						r = r.min_distance.distance,
+						g = g.min_distance.distance,
+						b = b.min_distance.distance,
+						med = med_min_dist,
+					})
+
+					if windings[contour_index] > 0 && med_min_dist >= 0 && abs(med_min_dist) < abs(pos_dist) {
+						pos_dist = med_min_dist
+					}
+
+					if windings[contour_index] < 0 && med_min_dist <= 0 && abs(med_min_dist) < abs(neg_dist) {
+						neg_dist = med_min_dist
+					}
+				}
+
+				if near_edge, ok := sr.near_edge.?; ok {
+					sr.min_distance = distance_to_pseudo(sr.min_distance, p, sr.near_param, near_edge)
+				}
+				if near_edge, ok := sg.near_edge.?; ok {
+					sg.min_distance = distance_to_pseudo(sg.min_distance, p, sg.near_param, near_edge)
+				}
+				if near_edge, ok := sb.near_edge.?; ok {
+					sb.min_distance = distance_to_pseudo(sb.min_distance, p, sb.near_param, near_edge)
+				}
+
+				msd := Multi_Distance {
+					r = INF,
+					g = INF,
+					b = INF,
+					med = INF,
+				}
+
+				if pos_dist >= 0 && abs(pos_dist) < abs(neg_dist) {
+					msd.med = INF
+					winding = 1
+					for contour, i in contours {
+						if windings[i] > 0 && contour_dists[i].med > msd.med && abs(contour_dists[i].med) < abs(neg_dist) {
+							msd = contour_dists[i]
+						}
+					}
+				}
+				else if neg_dist <= 0 && abs(neg_dist) <= abs(pos_dist) {
+					msd.med = -INF
+					winding = -1
+					for contour, i in contours {
+						if windings[i] < 0 && contour_dists[i].med < msd.med && abs(contour_dists[i].med) < abs(pos_dist) {
+							msd = contour_dists[i]
+						}
+					}
+				}
+
+				for contour, i in contours {
+					if windings[i] != winding && abs(contour_dists[i].med) < abs(msd.med) {
+						msd = contour_dists[i]
+					}
+				}
+
+				if (median(sr.min_distance.distance, sg.min_distance.distance, sb.min_distance.distance) == msd.med) {
+					msd.r = sr.min_distance.distance
+					msd.g = sg.min_distance.distance
+					msd.b = sb.min_distance.distance
+				}
+
+				bitmap_index := 3 * ((row * w) + x)
+
+				mr := msd.r * inv_range + 0.5
+				mg := msd.g * inv_range + 0.5
+				mb := msd.b * inv_range + 0.5
+
+				bitmap[bitmap_index + 0] = mr
+				bitmap[bitmap_index + 1] = mr
+				bitmap[bitmap_index + 2] = mr
 			}
 		}
 	}
 
-	unimplemented()
+	result.glyph_index = glyph_index
+	result.width = w
+	result.height = h
+	result.y_offset = i32(translate_y)
+	result.values = (transmute([^][3]f32)raw_data(bitmap))[:w * h]
+	return result
+}
+
+signed_lt :: proc(a, b: Signed_Distance) -> bool {
+	return abs(a.distance) < abs(b.distance) ||
+			(abs(a.distance) == abs(b.distance) && a.dot < b.dot)
 }
 
 shoelace :: proc(a, b: Vec2) -> f32 {
 	return (b[0] - a[0]) * (a[1] + b[1])
+}
+
+distance :: proc(e: Edge_Segment, origin: Vec2) -> (sd: Signed_Distance, param: f32){
+	#partial switch e.type {
+	case .VLine:
+		return distance_linear(e, origin)
+	case .VCurve:
+		return distance_quadratic(e, origin)
+	case .VCubic:
+		return distance_cubic(e, origin)
+	}
+
+	panic("Invalid edge segment type")
 }
 
 distance_linear :: proc(e: Edge_Segment, origin: Vec2) -> (sd: Signed_Distance, param: f32){
@@ -262,13 +358,13 @@ distance_linear :: proc(e: Edge_Segment, origin: Vec2) -> (sd: Signed_Distance, 
 distance_quadratic :: proc(e: Edge_Segment, origin: Vec2) -> (sd: Signed_Distance, param: f32){
 	assert(e.type == .VCurve)
 	qa := e.p[0] - origin
-    ab := e.p[1] - e.p[0]
-    br := e.p[2] - e.p[1] - ab
+	ab := e.p[1] - e.p[0]
+	br := e.p[2] - e.p[1] - ab
 
-    a := lin.inner_product(br, br)
-    b := 3 * lin.inner_product(ab, br)
-    c := 2 * lin.inner_product(ab, ab) + lin.inner_product(qa, br)
-    d := lin.inner_product(qa, ab)
+	a := lin.inner_product(br, br)
+	b := 3 * lin.inner_product(ab, br)
+	c := 2 * lin.inner_product(ab, ab) + lin.inner_product(qa, br)
+	d := lin.inner_product(qa, ab)
 
 	roots, solutions := solve_cubic(a, b, c, d)
 
@@ -293,24 +389,24 @@ distance_quadratic :: proc(e: Edge_Segment, origin: Vec2) -> (sd: Signed_Distanc
 			dist := lin.length(qe)
 
 			if dist <= abs(min_dist){
-                min_dist = non_zero_sign(lin.inner_product(ab + root * br, qe)) * dist
+				min_dist = non_zero_sign(lin.inner_product(ab + root * br, qe)) * dist
 				param = root
 			}
 		}
 	}
 
-    if param >= 0 && param <= 1 {
+	if param >= 0 && param <= 1 {
 		sd = { min_dist, 0 }
-        return
+		return
 	}
 
-    if param < 0.5 {
+	if param < 0.5 {
 		sd = { min_dist, abs(lin.inner_product(lin.normalize(direction(e, 0)), lin.normalize(qa))) }
-        return 
+		return 
 	}
-    else {
+	else {
 		sd = { min_dist, abs(lin.inner_product(lin.normalize(direction(e, 1)), lin.normalize(e.p[2] - origin))) }
-        return
+		return
 	}
 }
 
@@ -321,58 +417,58 @@ CUBIC_SEARCH_STEPS :: 4
 distance_cubic :: proc(e: Edge_Segment, origin: Vec2) -> (sd: Signed_Distance, param: f32){
 	assert(e.type == .VCubic)
 
-    qa := e.p[0] - origin
-    ab := e.p[1] - e.p[0]
-    br := e.p[2] - e.p[1] - ab
-    as := (e.p[3] - e.p[2]) - (e.p[2] - e.p[1]) - br
+	qa := e.p[0] - origin
+	ab := e.p[1] - e.p[0]
+	br := e.p[2] - e.p[1] - ab
+	as := (e.p[3] - e.p[2]) - (e.p[2] - e.p[1]) - br
 
-    ep_dir := direction(e, 0)
+	ep_dir := direction(e, 0)
 	min_dist := non_zero_sign(lin.inner_product(ep_dir, qa)) * lin.length(qa) // Distance from A
-    param = -lin.inner_product(qa, ep_dir) / lin.inner_product(ep_dir, ep_dir)
+	param = -lin.inner_product(qa, ep_dir) / lin.inner_product(ep_dir, ep_dir)
 	{
 		ep_dir = direction(e, 1)
 		dist := lin.length(e.p[3] - origin) // Distance from B
 
 		if dist < abs(min_dist) {
-            min_dist = non_zero_sign(lin.cross(ep_dir, e.p[3]-origin)) * dist
-            param = lin.inner_product(ep_dir - (e.p[3] - origin), ep_dir) / lin.inner_product(ep_dir, ep_dir)
+			min_dist = non_zero_sign(lin.cross(ep_dir, e.p[3]-origin)) * dist
+			param = lin.inner_product(ep_dir - (e.p[3] - origin), ep_dir) / lin.inner_product(ep_dir, ep_dir)
 		}
 	}
 
 	// Iterative minimum distance seach
 	for i in 0..=CUBIC_SEARCH_STARTS {
 		t := f32(i) / CUBIC_SEARCH_STARTS
-        qe := qa + (3 * t * ab) + (3 * t * t * br) + (t * t * t * as)
-		
-		for step in 0..<CUBIC_SEARCH_STEPS {
-            // Improve t
-			d1 := (3 * ab) + (6 * t * br) + (3 * t * t * as)
-            d2 := (6 * br) + (6 * t * as)
+		qe := qa + (3 * t * ab) + (3 * t * t * br) + (t * t * t * as)
 
-            t -= lin.inner_product(qe, d1) / (lin.inner_product(d1, d1) + lin.inner_product(qe, d2))
+		for step in 0..<CUBIC_SEARCH_STEPS {
+			// Improve t
+			d1 := (3 * ab) + (6 * t * br) + (3 * t * t * as)
+			d2 := (6 * br) + (6 * t * as)
+
+			t -= lin.inner_product(qe, d1) / (lin.inner_product(d1, d1) + lin.inner_product(qe, d2))
 			if t <= 0 || t >= 1 {
 				break
 			}
 
-            qe = qa + (3 * t * ab) + (3 * t * t * br) + (t * t * t * as);
+			qe = qa + (3 * t * ab) + (3 * t * t * br) + (t * t * t * as)
 			dist := lin.length(qe)
 			if dist < abs(min_dist){
-                min_dist = non_zero_sign(lin.cross(d1, qe)) * dist;
+				min_dist = non_zero_sign(lin.cross(d1, qe)) * dist
 				param = t
 			}
 		}
 	}
 
-    if param >= 0 && param <= 1 {
+	if param >= 0 && param <= 1 {
 		sd = { min_dist, 0 }
-        return
+		return
 	}
 
-    if param < .5 {
+	if param < .5 {
 		sd = { min_dist, abs(lin.inner_product(lin.normalize(direction(e, 0)), lin.normalize(qa))) }
 		return
 	}
-    else {
+	else {
 		sd = { min_dist, abs(lin.inner_product( lin.normalize(direction(e, 1)), lin.normalize(e.p[3] - origin))) }
 		return
 	}
@@ -398,10 +494,10 @@ contour_winding :: proc(contour: Contour) -> int {
 		c := point(contour.edges[1], 0.0)
 		d := point(contour.edges[1], 0.5)
 
-        total += shoelace(a, b)
-        total += shoelace(b, c)
-        total += shoelace(c, d)
-        total += shoelace(d, a)
+		total += shoelace(a, b)
+		total += shoelace(b, c)
+		total += shoelace(c, d)
+		total += shoelace(d, a)
 	case:
 		prev := point(contour.edges[edge_count - 1], 0)
 		for edge in contour.edges {
@@ -436,7 +532,13 @@ switch_color :: proc(color: ^Edge_Color, seed: ^u64, banned: Edge_Color){
 	}
 }
 
-Vertex :: stbtt.vertex
+// // #define msdf_pixelAt(x, y, w, arr)
+// // 	((msdf_Vec3){arr[(3 * (((y)*w) + x))], arr[(3 * (((y)*w) + x)) + 1], arr[(3 * (((y)*w) + x)) + 2]})
+//
+// @private
+// INF :: -1e24
+//
+// EDGE_THRESHOLD :: 0.02
 
 // Ex_Metrics :: struct {
 // 	glyph_index: i32,
@@ -445,27 +547,6 @@ Vertex :: stbtt.vertex
 // 	ix0, ix1: i32,
 // 	iy0, iy1: i32,
 // }
-
-Result :: struct {
-	glyph_index: i32,
-	left_bearing: i32,
-	advance: i32,
-	rgb: [^]f32, // NOTE: Pixel data?
-	width: i32,
-	height: i32,
-}
-
-Vec2 :: [2]f32
-
-Vec3 :: [3]f32
-
-// // #define msdf_pixelAt(x, y, w, arr)
-// // 	((msdf_Vec3){arr[(3 * (((y)*w) + x))], arr[(3 * (((y)*w) + x)) + 1], arr[(3 * (((y)*w) + x)) + 2]})
-//
-// @private
-// INF :: -1e24
-//
-// EDGE_THRESHOLD :: 0.02
 
 Signed_Distance :: struct {
 	distance: f32,
@@ -486,16 +567,16 @@ Edge_Type :: enum i32 {
 	VCubic = i32(stbtt.vmove.vcubic),
 }
 
-
 Edge_Color :: enum i32 {
-    Black   = 0,
-    Red     = 1,
-    Green   = 2,
-    Yellow  = 3,
-    Blue    = 4,
-    Magenta = 5,
-    Cyan    = 6,
-    White   = 7
+	// bits: BGR
+	Black   = 0b000,
+	Red     = 0b001,
+	Green   = 0b010,
+	Yellow  = 0b011,
+	Blue    = 0b100,
+	Magenta = 0b101,
+	Cyan    = 0b110,
+	White   = 0b111,
 }
 
 direction :: proc(e: Edge_Segment, param: f32) -> (r: Vec2){
@@ -837,7 +918,7 @@ segment_contour_ranges :: proc(verts: []Vertex) -> []Vertex_Range {
 		return nil
 	}
 
-    // Determine what vertices belong to what contours
+	// Determine what vertices belong to what contours
 	vert_ranges := make([]Vertex_Range, contour_count)
 
 	current_range_idx := 0
@@ -865,7 +946,7 @@ segment_contour_ranges :: proc(verts: []Vertex) -> []Vertex_Range {
 
 Edge_Point :: struct {
 	min_distance: Signed_Distance,
-	near_edge: ^Edge_Segment,
+	near_edge: Maybe(Edge_Segment),
 	near_param: f32,
 }
 
@@ -944,5 +1025,153 @@ contours_from_vertices :: proc(verts: []Vertex) -> []Contour {
 	}
 
 	return contours
+}
+
+color_edges :: proc(contours: []Contour, seed: u64){
+	seed := seed
+	angle_threshold :: f32(3.0)
+	cross_threshold := f32(math.sin(angle_threshold))
+	corners := make([dynamic]int, 0, len(contours))
+
+	for &contour, i in contours {
+		if len(contour.edges) == 0 { continue }
+
+		/* Identify corners */ {
+			// clear(&corners)
+			prev_dir := direction(contour.edges[len(contour.edges) - 1], 1.0)
+
+			for edge, index in contour.edges {
+				dir := direction(edge, 0)
+
+				dir = lin.normalize(dir)
+				prev_dir = lin.normalize(prev_dir)
+
+				if is_corner(prev_dir, dir, cross_threshold) {
+					append(&corners, index)
+				}
+				prev_dir = direction(edge, 1)
+			}
+		}
+
+		when ODIN_DEBUG {
+			fmt.printfln("--- Identified Corners %d ---", i)
+			for c in corners {
+				fmt.printfln("\t%d", c)
+			}
+		}
+
+		if len(corners) == 0 { /* No corners, smooth shape */
+			for edge, i in contour.edges {
+				contour.edges[i].color = .White
+			}
+		}
+		else if len(corners) == 1 { /* "Teardrop" like shape */
+			colors := [3]Edge_Color{.White, .White, .Black}
+			switch_color(&colors[0], &seed, .Black)
+			colors[2] = colors[0]
+			switch_color(&colors[2], &seed, .Black)
+
+			corner := corners[0]
+			if len(contour.edges) >= 3 { /* Enough edges to "spread" colors */
+				m := len(contour.edges)
+				for j in 0..<m {
+					// NOTE: I have zero fucking idea why this works, the original code is even more arcane
+					// contour_data[i].edges[(corner + j) % m].color = (colors + 1)[(int)(3 + 2.875 * i / (m - 1) - 1.4375 + .5) - 3];
+					contour.edges[(corner + j) % m].color = colors[1 + symmetrical_trichotomy(i, m)]
+				}
+			}
+			else if len(contour.edges) >= 1 { /* Less than three edge segments for three colors -> edges must be split */
+				parts := [7]Edge_Segment{}
+				c_off := 3 * corner
+
+				parts[0 + c_off], parts[1 + c_off], parts[2 + c_off] = split(contour.edges[0])
+
+				if len(contour.edges) >= 2 {
+					parts[3 - c_off], parts[4 - c_off], parts[5 - c_off] = split(contour.edges[1])
+
+					parts[0].color = colors[0]
+					parts[1].color = colors[0]
+
+					parts[2].color = colors[1]
+					parts[3].color = colors[1]
+
+					parts[4].color = colors[2]
+					parts[5].color = colors[2]
+				}
+				else {
+					parts[0].color = colors[0]
+					parts[1].color = colors[1]
+					parts[2].color = colors[2]
+				}
+
+				delete(contour.edges)
+				contour.edges = make([dynamic]Edge_Segment, 0, 7)
+				append(&contour.edges, ..parts[:])
+			}
+		}
+		else { /* Multiple corners */
+			spline := 0
+			start := corners[0]
+			corner_count := len(corners)
+			m := len(contour.edges)
+
+			color := Edge_Color.White
+			switch_color(&color, &seed, .Black)
+			initial_color := color
+
+			for i in 0..<m {
+				index := (start + i) % m
+				if spline + 1 < corner_count && corners[spline + 1] == index {
+					spline += 1
+					switch_color(&color, &seed, (spline == corner_count - 1) ? initial_color : .Black)
+				}
+				contour.edges[index].color = color
+			}
+		}
+	}
+}
+
+INF :: -1e24
+
+// void msdf_distToPseudo(msdf_signedDistance *distance, msdf_Vec2 origin, float param, msdf_EdgeSegment *e) {
+
+distance_to_pseudo :: proc(dist: Signed_Distance, origin: Vec2, param: f32, e: Edge_Segment) -> Signed_Distance {
+	if param < 0 {
+		dir := lin.normalize(direction(e, 0))
+		aq := origin - point(e, 0)
+		ts := lin.inner_product(aq, dir)
+
+		if ts < 0 {
+			pseudo_dist := lin.cross(aq, dir)
+			if abs(pseudo_dist) < abs(dist.distance){
+				return { pseudo_dist, 0 }
+			}
+		}
+	}
+	else if param > 1 {
+		dir := lin.normalize(direction(e, 1))
+		bq := origin - point(e, 1)
+
+		ts := lin.inner_product(bq, dir)
+		if ts > 0 {
+			pseudo_dist := lin.cross(bq, dir)
+			if abs(pseudo_dist) >= abs(dist.distance){
+				return { pseudo_dist, 0 }
+			}
+		}
+	}
+	return dist
+}
+
+// For each position < n, this function will return -1, 0, or 1, depending on
+// whether the position is closer to the beginning, middle, or end,
+// respectively. It is guaranteed that the output will be balanced in that the
+// total for positions 0 through n-1 will be zero.
+symmetrical_trichotomy :: proc(pos, n: int) -> int {
+	return int(3 + 2.875 * f32(pos) / (f32(n - 1) - 1.4375 + 0.5)) - 3
+}
+
+non_zero_sign :: proc(n: f32) -> f32 {
+	return 2 * (n > 0 ? 1 : 0) - 1
 }
 
